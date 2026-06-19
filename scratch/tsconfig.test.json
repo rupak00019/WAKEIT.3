@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "ignoreDeprecations": "6.0",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "strict": false,
+    "rootDir": "d:/WAKEIT.3",
+    "types": ["node"],
+    "outDir": "scratch/dist",
+    "noEmit": false,
+    "jsx": "react-native",
+    "resolveJsonModule": true,
+    "baseUrl": "d:/WAKEIT.3",
+    "paths": {
+      "@/*": ["src/*"],
+      "@/assets/*": ["assets/*"]
+    }
+  },
+  "include": [
+    "../store/**/*.ts",
+    "../lib/**/*.ts",
+    "./**/*.ts"
+  ]
+}

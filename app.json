@@ -1,16 +1,21 @@
 {
   "expo": {
-    "name": "temp-app",
-    "slug": "temp-app",
+    "name": "WAKEIT",
+    "slug": "wakeit",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
-    "scheme": "tempapp",
-    "userInterfaceStyle": "automatic",
-    "ios": {
-      "icon": "./assets/expo.icon"
+    "updates": {
+      "url": "https://u.expo.dev/a84b0cff-5942-486c-bbac-b263e807e1bb"
     },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "icon": "./assets/images/icon.png",
+    "scheme": "wakeit",
+    "userInterfaceStyle": "automatic",
     "android": {
+      "package": "com.rupak.wakeit",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -34,11 +39,24 @@
             "imageWidth": 76
           }
         }
-      ]
+      ],
+      "expo-font",
+      "expo-image",
+      "expo-sqlite",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "a84b0cff-5942-486c-bbac-b263e807e1bb"
+      }
+    },
+    "owner": "rupak708600",
+    "ios": {}
   }
 }

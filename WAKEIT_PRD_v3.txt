@@ -1,0 +1,2776 @@
+================================================================================
+WAKEIT — PRODUCT REQUIREMENTS DOCUMENT
+Version 3.0 | June 2026 | CONFIDENTIAL
+Group Accountability Alarm Platform
+================================================================================
+
+This document is the single source of truth for building WAKEIT. Every decision
+about what the app does, how it behaves, what screens exist, how data flows, and
+how the backend works is documented here with full explanation. The AI coding
+agent (Antigravity) must follow this document exactly. When there is any doubt
+about how something should work, refer back to this document before making any
+assumption.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1.  Product Overview & Vision
+  2.  The Problem We Are Solving
+  3.  How the App Works — Big Picture
+  4.  User Types & Subscription Plans
+  5.  Core Features — Detailed Specification
+      5.1  Authentication & Onboarding
+      5.2  Group Management
+      5.3  Alarm System (Critical Path)
+      5.4  Math Challenge — Wake Verification
+      5.5  Custom Alarm Sounds
+      5.6  Performance & Stats
+      5.7  Notifications
+  6.  All App Screens — Complete List & Purpose
+  7.  UI Design System
+  8.  UI Build Process (Antigravity Workflow)
+  9.  Technical Architecture
+      9.1  Technology Stack
+      9.2  Cost Profile
+      9.3  Database Schema
+      9.4  Supabase Edge Functions
+      9.5  Firebase Cloud Messaging (FCM)
+      9.6  Alarm Delivery Pipeline
+      9.7  Offline Architecture
+      9.8  Local SQLite Database
+      9.9  Supabase Realtime
+      9.10 RevenueCat & Subscriptions
+      9.11 Row Level Security
+      9.12 Android Permissions
+      9.13 Project File Structure
+  10. iOS Plan
+  11. Production & Deployment
+  12. Success Metrics
+  13. Out of Scope for v1.0
+
+
+================================================================================
+SECTION 1: PRODUCT OVERVIEW & VISION
+================================================================================
+
+PRODUCT NAME       : WAKEIT
+DOCUMENT VERSION   : PRD v3.0
+DATE               : June 2026
+PLATFORM           : Android (v1.0 launch) — iOS planned 3+ months post-launch
+TARGET MARKET      : India — English-speaking young professionals, students,
+                     fitness communities, and discipline-focused groups
+LANGUAGE           : English only
+BUSINESS MODEL     : Freemium — 3-day Free Trial, then paid subscription
+PAYMENT PROVIDER   : RevenueCat (free tier) + Google Play Billing
+BUILD TOOL         : Antigravity AI coding agent
+ESTIMATED LAUNCH COST : ~$25 USD (Google Play one-time registration only)
+
+--------------------------------------------------------------------------------
+VISION STATEMENT
+--------------------------------------------------------------------------------
+
+WAKEIT is a group accountability alarm platform. The core idea is simple: when
+you know other people can see whether you woke up or not, you are far less likely
+to sleep through your alarm.
+
+The app allows a group Admin to schedule alarms for everyone in their group.
+When the alarm fires, every member must solve a math problem to silence it —
+there is no snooze button, no dismiss button, and no way to turn it off without
+completing the challenge. The moment someone solves the challenge, everyone in
+the group sees it in real time on the Group Dashboard.
+
+This creates three powerful forces working together:
+  1. Social pressure   — your group can see if you missed your alarm
+  2. Cognitive barrier — you must be mentally awake enough to solve math
+  3. Reliability       — the alarm works even without internet
+
+The app is built for the Indian market, priced in INR, and designed for young
+adults who want to build morning discipline but struggle with motivation alone.
+
+
+================================================================================
+SECTION 2: THE PROBLEM WE ARE SOLVING
+================================================================================
+
+Traditional alarm clocks have two fatal flaws:
+
+FLAW 1: They are too easy to dismiss.
+Hitting snooze or turning off an alarm takes zero mental effort. You can do it
+while still half asleep. The alarm has done its job (making noise) but completely
+failed at its purpose (getting you awake and out of bed).
+
+FLAW 2: There are no consequences for failing.
+Nobody knows if you slept through your alarm. There is no accountability. If you
+were supposed to wake up at 6am for a workout with friends and you slept until
+8am, the only person who knows is you — and you already decided to sleep in.
+
+WAKEIT solves both problems:
+
+SOLUTION 1: Math challenge as the off switch.
+The alarm cannot be turned off without solving a math problem. Easy difficulty
+requires single-digit addition/subtraction. Medium requires two-digit
+multiplication. Hard requires multi-step equations. This forces the brain to
+actually engage before the alarm stops. You cannot solve math while still asleep.
+
+SOLUTION 2: Group visibility creates accountability.
+When you complete the math challenge, your completion is broadcast to your entire
+group in real time. When you miss it (timeout after 5 minutes), that is also
+visible. Your Group Dashboard shows exactly who woke up and who did not. This
+social visibility is the core product differentiator.
+
+WHY THIS MATTERS FOR INDIA:
+India has a massive population of young students and professionals who live in
+group settings (hostel rooms, shared apartments, family homes) and who are deeply
+motivated by social dynamics. Group accountability is culturally resonant.
+The price points (Rs249/year for members, Rs1,249/year for admins) are
+deliberately low to be accessible across income levels.
+
+
+================================================================================
+SECTION 3: HOW THE APP WORKS — BIG PICTURE
+================================================================================
+
+Here is the complete user journey from signup to alarm completion, written in
+plain language so the agent understands the full flow before reading the details.
+
+STEP 1 — SIGN UP & CHOOSE A PLAN
+A new user downloads WAKEIT, sees 3 onboarding slides explaining what the app
+does, then signs up with email and password. After signing up, they are shown
+a plan comparison screen. They can purchase Member (Rs249/yr) or Admin
+(Rs1,249/yr), or they can dismiss without purchasing to start a 3-day Free Trial
+that gives them Admin-level access for 3 days.
+
+STEP 2 — CREATE OR JOIN A GROUP
+If the user is an Admin or on Free Trial, they can create a group. Creating a
+group generates a unique 6-character invite code. They share this code with
+people they want to wake up with — teammates, hostel friends, study group, gym
+partners. Anyone with the code can join the group by entering it in the Join
+Group screen (they need at least a Member plan or active Free Trial to join).
+
+STEP 3 — ADMIN CREATES AN ALARM
+The Admin opens their group, taps "Create Alarm", picks a date and time, chooses
+difficulty (Easy / Medium / Hard), optionally uploads a custom sound or records
+their voice, and saves it. The alarm is sent to Supabase, which then sends a
+silent push notification (FCM) to every member's device. Each device writes the
+alarm to local SQLite storage and schedules it with Android AlarmManager. This
+happens silently in the background — members do not see a notification at this
+point, but their devices are now ready to fire the alarm at the exact scheduled
+time, even if they lose internet.
+
+STEP 4 — THE ALARM FIRES
+At the exact scheduled time, Android AlarmManager wakes the device and triggers
+Notifee to display a full-screen alarm UI. This happens even if:
+  - The app is completely closed (force-killed)
+  - The device has no internet connection
+  - The screen is off and the device is in Doze mode
+  - The device was recently rebooted (Boot Receiver restores alarms on reboot)
+
+The full-screen alarm UI opens over the lock screen. The volume ramps to maximum.
+The device vibrates. There is no dismiss button. There is no snooze button. The
+only way to stop the alarm is to complete the math challenge.
+
+STEP 5 — MATH CHALLENGE
+The user is shown a math problem based on the difficulty set by the Admin. They
+type their answer on a numeric keypad. If they get it wrong, the challenge resets
+and the alarm keeps ringing. If they get it right, the alarm stops, a success
+screen is shown, and the completion is posted to Supabase.
+
+STEP 6 — GROUP SEES THE RESULT
+Via Supabase Realtime, the Group Dashboard for every member updates instantly to
+show that this person completed the challenge. The completion time is recorded.
+Members who miss the 5-minute window are automatically marked as "missed" and
+that status is also visible to the group.
+
+STEP 7 — STATS UPDATE
+After each alarm, the member's wake score (percentage of alarms completed) and
+streak (consecutive days completed) are recalculated and saved.
+
+This is the complete product loop. Everything in this PRD supports this loop.
+
+
+================================================================================
+SECTION 4: USER TYPES & SUBSCRIPTION PLANS
+================================================================================
+
+WAKEIT has two types of users and three plan tiers.
+
+--------------------------------------------------------------------------------
+4.1 USER TYPES
+--------------------------------------------------------------------------------
+
+ADMIN
+An Admin is someone who creates and manages groups. They schedule alarms for
+their group members. They can remove members from their group. They can see
+per-member wake stats. An Admin also receives all alarms just like a member —
+they are not exempt from the math challenge. Admin plan allows creating up to
+5 groups with up to 20 members each and up to 20 alarms per group.
+
+MEMBER
+A Member is someone who joins groups created by Admins. They receive alarms,
+complete math challenges, and can see the group dashboard. They cannot create
+groups or schedule alarms. Member plan allows joining unlimited groups.
+
+NOTE: An Admin plan user can ALSO join groups as a member. The Admin plan
+includes all Member plan capabilities plus the ability to create groups.
+
+--------------------------------------------------------------------------------
+4.2 SUBSCRIPTION PLANS
+--------------------------------------------------------------------------------
+
+FREE TRIAL (3 days, Rs0)
+  - Starts automatically when a new user dismisses the plan selection screen
+    without purchasing
+  - Gives full Admin-level capabilities for exactly 3 days
+  - Can create up to 2 groups with up to 10 members and 5 alarms per group
+  - After 3 days, ALL creation abilities are locked. The user must purchase
+    a plan to continue. They can still receive alarms they were already added to.
+  - trial_started_at is set at signup. trial_ends_at = trial_started_at + 3 days.
+  - The app checks trial status on launch via RevenueCat + Supabase.
+
+MEMBER PLAN (Rs249/year)
+  - Can join unlimited groups
+  - Cannot create groups or schedule alarms
+  - Receives alarms, completes math challenges, sees group dashboards
+  - Google Play Product ID: wakeit_member_annual
+  - RevenueCat Entitlement ID: wakeit_member
+
+ADMIN PLAN (Rs1,249/year)
+  - Can create up to 5 groups
+  - Up to 20 members per group
+  - Up to 20 alarms per group
+  - Can also join groups as a member
+  - Google Play Product ID: wakeit_admin_annual
+  - RevenueCat Entitlement ID: wakeit_admin
+
+--------------------------------------------------------------------------------
+4.3 HOW PLAN ENFORCEMENT WORKS
+--------------------------------------------------------------------------------
+
+IMPORTANT: Plan limits are NEVER enforced on the client (the app). They are
+ALWAYS enforced on the server inside Supabase Edge Functions. This means even
+if someone modifies the app code or sends API requests directly, they cannot
+bypass plan limits. An Edge Function validates the user's plan before performing
+any action like creating a group or scheduling an alarm.
+
+On app launch:
+  1. App calls RevenueCat: Purchases.getCustomerInfo()
+  2. RevenueCat returns the user's active entitlements
+  3. App stores entitlements in Zustand authStore
+  4. All plan-gated UI uses authStore — it never calls RevenueCat in real time
+     during navigation (this would be slow and wasteful)
+
+When a user purchases, cancels, or their plan expires:
+  1. RevenueCat sends a webhook POST to the revenuecat-webhook Edge Function
+  2. The webhook validates the secret in the Authorization header
+  3. The webhook updates users.plan_type and user_subscriptions in Supabase
+  4. On the next app launch, Purchases.getCustomerInfo() returns the updated state
+
+iOS pricing note: Apple charges 30% commission vs Google's 15% after year 1.
+When iOS launches, pricing will be reviewed. No decision is locked in at this
+stage of development.
+
+
+================================================================================
+SECTION 5: CORE FEATURES — DETAILED SPECIFICATION
+================================================================================
+
+--------------------------------------------------------------------------------
+5.1 AUTHENTICATION & ONBOARDING
+--------------------------------------------------------------------------------
+
+PURPOSE: Get a new user signed up and into the app as quickly as possible, with
+the right plan selected and permissions granted.
+
+--- SPLASH SCREEN ---
+What it does: Shows when the app first launches. Displays the WAKEIT logo with
+an animation. Runs a silent version check in the background (to alert users if
+they are on an outdated version). After the animation, navigates to Onboarding
+(first launch) or the main app (returning user who is logged in).
+
+Do NOT show onboarding again if the user has already completed it. Store a
+flag in local storage (AsyncStorage or SQLite) to track whether onboarding
+has been seen.
+
+--- ONBOARDING SLIDES (3 screens) ---
+What it does: Shows 3 slides that explain what WAKEIT does before the user
+signs up. Each slide has an illustration, a heading, and 1-2 sentences of
+explanation. There is a "Skip" button (top right) that goes directly to Login,
+and a "Next" button that advances slides. The final slide has a "Get Started"
+button that goes to Sign Up.
+
+Slide 1: "Wake up together" — explains group accountability concept
+Slide 2: "No more snoozing" — explains the math challenge
+Slide 3: "Always on time" — explains offline reliability
+
+Only show onboarding on first launch. After the user completes it or skips,
+never show it again on subsequent launches.
+
+--- SIGN UP ---
+What it does: Creates a new user account.
+
+Fields:
+  - Full Name (text input)
+  - Email Address (email input with validation)
+  - Password (password input, min 8 characters, show/hide toggle)
+  - "Sign Up" button
+
+On submit:
+  1. Validate all fields are filled and email format is correct
+  2. Show loading state on the Sign Up button
+  3. Call Supabase Auth: supabase.auth.signUp({ email, password, options: { data: { full_name } } })
+  4. On success: navigate to Plan Selection screen
+  5. On error: show inline error message (email already in use, weak password, etc.)
+
+After signup, a record is automatically created in the public.users table via
+a Supabase database trigger (trigger fires on auth.users insert, copies user
+data to public.users and sets trial_started_at and trial_ends_at).
+
+--- PLAN SELECTION ---
+What it does: Shows the two paid plans side by side with a comparison of
+features. This appears immediately after Sign Up. The user can purchase a plan
+OR dismiss to start the Free Trial.
+
+Content to show for each plan:
+  Member Plan (Rs249/year): Join unlimited groups, receive alarms, complete
+  challenges, view group stats
+  Admin Plan (Rs1,249/year): Everything in Member, PLUS create up to 5 groups,
+  schedule alarms, manage members, set alarm difficulty
+
+Buttons:
+  - "Choose Member" → triggers RevenueCat purchase flow for wakeit_member_annual
+  - "Choose Admin" → triggers RevenueCat purchase flow for wakeit_admin_annual
+  - "Start Free Trial" (smaller, below plans) → dismisses screen, starts 3-day trial
+
+On purchase success: navigate to Home Dashboard
+On trial start: navigate to Home Dashboard, set trial flag in Supabase
+
+RevenueCat purchase flow is handled by the RevenueCat SDK. The app calls
+Purchases.purchasePackage() and RevenueCat handles the Google Play dialog,
+receipt validation, and webhook to Supabase.
+
+There must also be a "Restore Purchases" button (small, at the bottom of the
+screen) for users who reinstall the app and need to restore their subscription.
+
+--- LOGIN ---
+What it does: Authenticates a returning user.
+
+Fields:
+  - Email Address
+  - Password (with show/hide toggle)
+  - "Log In" button
+  - "Forgot Password?" link (below the button)
+  - "Don't have an account? Sign Up" link (at the bottom)
+
+On submit:
+  1. Validate fields are not empty
+  2. Show loading state
+  3. Call: supabase.auth.signInWithPassword({ email, password })
+  4. On success: navigate to Home Dashboard (or wherever the user was going)
+  5. On error: show specific error messages:
+     - Wrong password: "Incorrect password. Please try again."
+     - Email not found: "No account found with this email."
+     - Email not verified: "Please verify your email before logging in."
+     - Network error: "Connection error. Please check your internet."
+
+--- FORGOT PASSWORD ---
+What it does: Sends a password reset email via Supabase.
+
+Field:
+  - Email Address
+  - "Send Reset Email" button
+  - "Back to Login" link
+
+On submit:
+  1. Validate email format
+  2. Call: supabase.auth.resetPasswordForEmail(email)
+  3. Show success message: "Check your email for a password reset link."
+  4. Do NOT tell the user if the email exists or not (security best practice)
+
+--- PERMISSION REQUIRED SCREEN ---
+What it does: Shown contextually before requesting any device permission. Never
+shown on first launch without context. Always explains WHY the permission
+is needed before asking for it.
+
+When to show it:
+  - Before requesting notification permission: shown when user first tries to
+    receive an alarm (explain: "WAKEIT needs notification access to ring your
+    alarm")
+  - Before requesting microphone permission: shown when user taps "Record Voice
+    Alarm" (explain: "We need microphone access to record your voice alarm")
+  - Before requesting storage permission: shown when user taps "Upload Audio
+    File" (explain: "We need storage access to read your audio file")
+
+Layout:
+  - Icon representing the permission type
+  - Clear heading: "Allow Notifications" / "Allow Microphone" / "Allow Storage"
+  - 2-3 sentence explanation in plain language of why this permission is needed
+  - "Allow" button → triggers the system permission dialog
+  - "Not Now" button → dismisses without requesting (feature will not work)
+
+If the user previously denied a permission, the "Allow" button should open
+the device Settings app directly (using Linking.openSettings()) since Android
+does not allow re-requesting a denied permission.
+
+--------------------------------------------------------------------------------
+5.2 GROUP MANAGEMENT
+--------------------------------------------------------------------------------
+
+PURPOSE: Allow Admins to create groups and Members to join them. Groups are the
+core unit of social accountability in WAKEIT.
+
+--- CREATE GROUP (Admin only) ---
+What it does: Creates a new group with a unique invite code.
+
+Fields:
+  - Group Name (required, text input, max 50 characters)
+  - Group Description (optional, text area, max 200 characters)
+  - Default Alarm Sound (optional — opens Sound Selection screen to pick a
+    default sound for all alarms in this group)
+  - "Create Group" button
+
+Validation (handled in Edge Function, not client):
+  - User must be Admin plan or active Free Trial
+  - User must not have reached their group creation limit (5 for Admin, 2 for Trial)
+  - Group name cannot be empty
+
+On submit:
+  1. POST to create-group Edge Function with { name, description, default_sound_url }
+  2. Edge Function generates a unique 6-character alphanumeric invite code
+     (e.g. "A3X9KM"). The code is case-insensitive but stored in uppercase.
+  3. Edge Function inserts into groups table
+  4. Also inserts a group_members row for the Admin themselves (so they are
+     a member of their own group)
+  5. Returns { group_id, invite_code }
+  6. App navigates to Group Dashboard for the new group
+  7. Show the invite code prominently on the Group Dashboard so the Admin can
+     share it immediately
+
+The invite code is auto-generated. The Admin cannot choose their own code.
+
+--- JOIN GROUP ---
+What it does: Adds a user to an existing group using an invite code.
+
+Fields:
+  - Invite Code input (6 characters, auto-capitalizes, shows characters as
+    user types — do NOT auto-submit, wait for "Join" button)
+  - "Join Group" button
+  - "Cancel" link
+
+Validation (handled in Edge Function):
+  - User must have a valid plan (Member, Admin, or active Free Trial)
+  - Invite code must exist and belong to an active group
+  - Group must not have reached its member limit (20 for Admin groups)
+  - User must not already be a member of this group
+
+On submit:
+  1. POST to join-group Edge Function with { invite_code }
+  2. Edge Function validates all conditions above
+  3. On success: inserts group_members row, sends notification to Admin
+  4. App navigates to Group Dashboard for the joined group
+  5. On error: show specific error message:
+     - Invalid code: "This invite code doesn't exist. Check it and try again."
+     - Group full: "This group is full."
+     - Already member: "You're already in this group."
+     - Plan required: "You need a plan to join groups. Tap here to upgrade."
+
+--- GROUPS LIST SCREEN ---
+What it does: Shows all groups the user is in (both created and joined).
+
+Layout:
+  - "Create Group" button at top (only visible if user is Admin or on Trial)
+  - "Join Group" button at top (visible to all users)
+  - List of Group Cards, each showing:
+    - Group name
+    - Number of members
+    - Next scheduled alarm time (or "No upcoming alarms")
+    - Admin's name (or "You are the Admin" if user is the admin)
+    - An indicator for unread notifications related to this group
+
+If the user has no groups: show empty state with illustration and text
+"You're not in any groups yet. Create one or ask for an invite code."
+
+--- GROUP DASHBOARD ---
+What it does: The main screen for a group. Shows alarms, member status, and
+group stats. This is the screen where real-time updates happen.
+
+This screen has multiple sections:
+
+SECTION 1 — NEXT ALARM COUNTDOWN
+If there is a scheduled alarm within the next 24 hours, show a large countdown
+timer (HH:MM:SS format) with the alarm name and time. This timer counts down
+in real time.
+
+SECTION 2 — ALARMS LIST
+Shows all scheduled and recent alarms for this group. Each alarm card shows:
+  - Alarm name/title
+  - Date and time (in user's local timezone)
+  - Difficulty level (Easy / Medium / Hard)
+  - Recurring indicator (if it repeats)
+  - Status (Scheduled / Active / Completed / Cancelled)
+  - For Admin: Edit and Delete buttons
+
+"Add Alarm" button (only visible to Admin).
+
+SECTION 3 — MEMBER STATUS GRID
+A grid of member cards showing each member's status for the MOST RECENT alarm.
+Each card shows:
+  - Member name
+  - Wake Score percentage
+  - Current streak (number of consecutive days completed)
+  - Status for latest alarm:
+    Green = Completed (shows completion time)
+    Orange = Pending (alarm hasn't fired yet or they haven't completed it)
+    Red = Missed (timeout expired without completion)
+
+This section updates in REAL TIME via Supabase Realtime. When a member
+completes the math challenge, their card immediately changes from Orange to
+Green without the user needing to refresh the screen.
+
+SECTION 4 — GROUP INFO
+  - Group name and description
+  - Invite code (shown for Admin, tap to copy)
+  - "View All Members" button → navigates to Group Members screen
+
+--- GROUP MEMBERS SCREEN ---
+What it does: Shows a detailed list of all group members with their stats.
+
+For each member:
+  - Profile photo (if available) or initials avatar
+  - Full name
+  - Wake Score (0-100%)
+  - Current streak (consecutive days)
+  - Longest streak ever
+  - Member since date (joined_at)
+  - Total alarms received
+  - Total alarms completed
+
+Admin-only action on each member card:
+  - "Remove Member" button → shows confirmation dialog before removing
+
+Confirmation dialog: "Remove [Name] from [Group Name]? They will lose access to
+all group alarms." with "Remove" (red) and "Cancel" buttons.
+
+On remove:
+  1. POST to remove-member Edge Function
+  2. Edge Function sets group_members.is_active = false
+  3. Edge Function sends FCM push to the removed member's device
+  4. The removed member's app receives the FCM, cancels all AlarmManager entries
+     for this group, and deletes them from local SQLite
+  5. Group member count updates
+  6. Removed member is no longer shown in the list
+
+--- GROUP STATISTICS ---
+Available on the Group Dashboard, not a separate screen. Shows:
+  - Group overall completion rate % (total completed / total alarms for all members)
+  - Individual member current streak
+  - Individual member wake score
+
+Full leaderboard and monthly summary are OUT OF SCOPE for v1.0.
+
+--------------------------------------------------------------------------------
+5.3 ALARM SYSTEM — CRITICAL PATH
+--------------------------------------------------------------------------------
+
+PURPOSE: The alarm system is the most important and most complex part of WAKEIT.
+Every component must work perfectly. An alarm that fails to ring is a broken
+product. Understand this section completely before writing any alarm-related code.
+
+The alarm system has two completely separate parts that must work together:
+  PART A: Cloud side (Supabase + FCM) — delivers alarm data to devices
+  PART B: Device side (SQLite + AlarmManager + Notifee) — rings the alarm
+
+These two parts are connected by FCM silent push notifications. Once Part B
+receives the data from Part A and schedules the alarm locally, Part B works
+completely independently of Part A. The alarm will ring even if Supabase goes
+down, FCM goes down, or the user has no internet.
+
+--- ALARM CREATION (Admin action) ---
+
+Screen: Create Alarm
+
+Fields:
+  - Alarm Title (required, e.g. "Morning Wake Up", "Study Session", max 50 chars)
+  - Date (date picker, must be future date)
+  - Time (time picker, 12-hour format with AM/PM, converts to 24-hour internally)
+  - Difficulty (segmented control: Easy / Medium / Hard)
+  - Alarm Sound (shows currently selected sound with "Change" button that opens
+    Sound Selection screen)
+  - Recurring toggle (off by default)
+    If ON, shows:
+    - Day selector (Mon, Tue, Wed, Thu, Fri, Sat, Sun checkboxes — at least
+      one must be selected)
+    - End date picker (required if recurring, max 30 days from today)
+  - "Save Alarm" button
+
+Validation:
+  - All required fields must be filled
+  - Date + time must be at least 2 minutes in the future
+  - At least one day selected if recurring
+
+On save:
+  1. App sends POST request to create-alarm Edge Function
+  2. Edge Function (see Section 9.4) handles everything from here
+  3. Show loading state on button until response received
+  4. On success: navigate back to Group Dashboard, show new alarm in list
+  5. On error: show specific error message and keep user on Create Alarm screen
+
+ALARM TIME STORAGE: All alarm times are stored in UTC in Supabase. The app
+converts to the user's local timezone for display. When syncing to devices via
+FCM, the alarm_time_utc is sent. The device converts it to local time for
+AlarmManager scheduling and for display.
+
+--- ALARM EDITING (Admin action) ---
+
+Screen: Edit Alarm (same layout as Create Alarm, fields pre-filled)
+
+Rules:
+  - An alarm can only be edited up to 1 minute before its scheduled time
+  - If the alarm is within 1 minute, show: "This alarm rings soon and cannot
+    be edited."
+  - Editing sends an update via update-alarm Edge Function
+  - Edge Function sends FCM alarm_update push to all members
+  - All member devices cancel the old AlarmManager entry and schedule a new one
+
+--- ALARM DELETION (Admin action) ---
+
+The Admin can delete an alarm from the Group Dashboard by tapping the Delete
+button on an alarm card.
+
+Confirmation dialog: "Delete [Alarm Title]? All members will be notified."
+with "Delete" (red) and "Cancel" buttons.
+
+On confirm:
+  1. POST to delete-alarm Edge Function
+  2. Edge Function sets alarm status = cancelled in Supabase
+  3. Edge Function sends FCM alarm_cancel push to all member devices
+  4. Member devices cancel their AlarmManager entry and remove from SQLite
+  5. Alarm card is removed from the Group Dashboard
+  6. All pending alarm_completion records for this alarm are updated to cancelled
+
+--- ALARM DETAIL SCREEN ---
+
+Shows full information about one alarm:
+  - Alarm title, date, time (in local timezone), difficulty, sound
+  - Recurring schedule (if applicable)
+  - Member completion grid (same as Group Dashboard but for this specific alarm)
+  - For Admin: Edit button and Delete button
+
+--- ALARM COUNTDOWN ---
+
+On the Group Dashboard, if there is a scheduled alarm within the next 24 hours,
+show a countdown timer in HH:MM:SS format that updates every second. This is
+calculated purely on the client — it does not need a server call. The app
+subtracts the current time from the alarm_time_local stored for that alarm.
+
+--- RECURRING ALARMS ---
+
+When a recurring alarm is created, it is stored as a single record in Supabase
+with is_recurring = true, recurrence_days = [1,3,5] (for Mon/Wed/Fri, where
+0=Sun, 1=Mon ... 6=Sat), and recurrence_end_date = the end date.
+
+On the device side, when the FCM sync is received for a recurring alarm, the
+device schedules AlarmManager entries for ALL occurrences within the recurrence
+window (up to 30 days). Each occurrence is a separate AlarmManager entry with
+a unique identifier derived from alarm_id + occurrence_date.
+
+After each ring, the device automatically schedules the NEXT occurrence if it
+is within the recurrence window. If the next occurrence is beyond the end date,
+no more scheduling happens.
+
+--- ALARM STATUS VALUES ---
+
+scheduled  : Alarm is set and will fire in the future
+active     : Alarm is currently ringing (between fire time and 5-minute timeout)
+completed  : All members have either completed or missed (5-minute window closed)
+cancelled  : Admin deleted this alarm
+
+--------------------------------------------------------------------------------
+5.4 MATH CHALLENGE — WAKE VERIFICATION
+--------------------------------------------------------------------------------
+
+PURPOSE: Force the user to be cognitively engaged before they can stop the alarm.
+This is the mechanism that makes WAKEIT different from a regular alarm clock.
+
+--- FULL SCREEN ALARM UI ---
+
+When AlarmManager fires, the following happens in this exact sequence:
+  1. Android AlarmManager triggers the AlarmReceiver (native Java)
+  2. AlarmReceiver calls Notifee to display a high-priority full-screen notification
+     on the wakeit_alarm channel
+  3. The AlarmScreen React Native component opens as a full-screen intent
+  4. Android window flags are set: FLAG_SHOW_WHEN_LOCKED, FLAG_TURN_SCREEN_ON,
+     FLAG_KEEP_SCREEN_ON — this makes the screen turn on even if locked
+  5. Volume is programmatically set to maximum
+  6. Alarm sound starts playing (loops continuously)
+  7. Vibration pattern starts
+
+The AlarmScreen shows:
+  - Large time display (current time)
+  - Group name and alarm title
+  - A message like "Wake up! Solve the challenge to stop the alarm."
+  - A button "I'm Awake — Show Challenge" that navigates to the Math Challenge screen
+
+There is NO dismiss button. There is NO snooze button. The back button is
+disabled on this screen. The home button is intercepted where possible on Android
+(though Android may not allow fully preventing home press — the alarm will
+continue ringing in the foreground service even if the user navigates away).
+
+--- MATH CHALLENGE SCREEN ---
+
+The Math Challenge screen shows one math problem and a numeric keypad.
+
+EASY (single-digit addition/subtraction):
+  Examples: "3 + 5 = ?", "9 - 4 = ?", "7 + 2 = ?"
+  Answer is always a positive integer, max 2 digits
+
+MEDIUM (two-digit multiplication):
+  Examples: "12 × 7 = ?", "8 × 13 = ?", "15 × 6 = ?"
+  Answer is always a positive integer, max 3 digits
+
+HARD (multi-step equations):
+  Examples: "(4 + 3) × 8 - 5 = ?", "6² + (12 - 7) = ?", "3 × (9 + 4) - 11 = ?"
+  Answer is always a positive integer, max 4 digits
+
+The problem is generated randomly on the device — it does not come from the
+server. The difficulty level is synced from the alarm data.
+
+The numeric keypad has digits 0-9 and a backspace button. There is no keyboard —
+only the custom numeric keypad. There is NO submit button. The answer is checked
+automatically when the correct number of digits has been entered (for Easy, when
+the user enters a 1 or 2 digit answer and it matches — but actually use a Submit
+button to avoid accidental submission).
+
+Use a Submit button. The user types their answer on the keypad, then taps Submit.
+
+ON WRONG ANSWER:
+  - Show brief visual feedback (red flash on the input field)
+  - Haptic feedback (error pattern)
+  - Clear the input field
+  - Show new math problem (generate a NEW problem, not the same one)
+  - Alarm continues ringing
+  - Increment the attempts counter (stored locally, sent to Supabase on completion)
+
+ON CORRECT ANSWER:
+  - Stop alarm sound immediately
+  - Stop vibration immediately
+  - Haptic feedback (success pattern)
+  - Navigate to Challenge Success screen
+  - In the background: POST to complete-challenge Edge Function with
+    { alarm_id, attempts: N, completed_at: timestamp }
+
+TIMEOUT (5 minutes from alarm_time, not from when the screen opened):
+  - If the math challenge is NOT completed within 5 minutes of the original
+    alarm time, the alarm is automatically marked as missed
+  - Stop alarm sound
+  - Stop vibration
+  - Navigate to Alarm Missed screen
+  - In the background: POST to complete-challenge Edge Function with
+    { alarm_id, status: 'missed' }
+
+HOW TO CALCULATE TIMEOUT:
+  The 5-minute window starts at alarm_time (the scheduled alarm time), NOT
+  when the user tapped "I'm Awake". Store alarm_time when AlarmManager fires.
+  Check: if (current_time - alarm_time) > 5 * 60 * 1000, show timeout.
+  Run a timer that checks this every second on the Math Challenge screen.
+
+--- CHALLENGE SUCCESS SCREEN ---
+
+Shows:
+  - Green checkmark animation
+  - "Challenge Complete!" heading
+  - The time they completed it (e.g., "Completed at 6:03 AM")
+  - Their current wake score and streak (fetched from Supabase after posting result)
+  - "Go to Group Dashboard" button
+  - "Go to Home" button
+
+--- ALARM MISSED SCREEN ---
+
+Shows:
+  - Red X animation
+  - "Alarm Missed" heading
+  - The alarm time that was missed
+  - A brief motivational message (e.g., "Tomorrow is a new chance. Set up
+    accountability to stay on track.")
+  - "Go to Group Dashboard" button
+  - "Go to Home" button
+
+--------------------------------------------------------------------------------
+5.5 CUSTOM ALARM SOUNDS
+--------------------------------------------------------------------------------
+
+PURPOSE: Allow Admins to make their group's alarm more personal and harder to
+ignore by using a custom sound (like a friend's voice saying "WAKE UP!").
+
+--- SOUND SELECTION SCREEN ---
+
+Shown when Admin taps "Change Sound" on Create Alarm or Edit Alarm screens.
+
+Three tabs or sections:
+  1. PRESET SOUNDS — list of default alarm sounds bundled with the app
+     (at least 5 options). Tap to preview. Tap again to select.
+  2. UPLOAD FILE — "Upload Audio File" button opens device file picker
+     filtered to MP3 and WAV files. Max file size 5MB. On selection,
+     show file name and a preview play button. Show upload progress bar.
+  3. RECORD VOICE — "Start Recording" button. Requests RECORD_AUDIO permission
+     first (via Permission Required screen). Shows recording timer while
+     recording. "Stop Recording" button ends recording. Shows playback control
+     to preview the recording. Save button uploads the recording.
+
+On selecting/uploading/recording:
+  1. Upload audio file to Supabase Storage in the 'audio' bucket
+     Path: audio/{group_id}/{alarm_id}/{filename}
+  2. Get the public URL from Supabase Storage
+  3. Store the URL in the alarm's sound_url field (or group's default_sound_url)
+  4. The FCM alarm_sync payload includes this sound_url
+  5. Each member device downloads and caches the audio file locally on receipt
+     of the FCM message (before the alarm fires, so it works offline)
+  6. The cached local file path is stored in local_alarms.sound_path
+
+For preset sounds: sound_path stores the bundled asset name (no download needed).
+
+If a custom sound fails to load at alarm time, fall back to the default system
+alarm sound. Never let a failed sound prevent the alarm from ringing.
+
+--- SUPABASE STORAGE LIMITS ---
+
+The Supabase free tier allows 1GB total storage. At 5MB max per file, this means
+the app can store up to ~200 custom sounds before hitting the limit. This is
+sufficient for early launch. Monitor storage usage in Supabase dashboard.
+If approaching limits, implement cleanup of old/deleted alarm sounds.
+
+--------------------------------------------------------------------------------
+5.6 PERFORMANCE & STATS (SIMPLIFIED)
+--------------------------------------------------------------------------------
+
+PURPOSE: Give users a sense of progress and accountability through visible stats.
+Note: Full leaderboard and monthly summary are OUT OF SCOPE for v1.0.
+
+--- WAKE SCORE ---
+
+The wake score is a percentage calculated as:
+  wake_score = (total_completed / total_alarms_received) * 100
+
+This is stored in group_members.wake_score and updated by the complete-challenge
+Edge Function after every alarm (whether completed or missed).
+
+The wake score is per group — a user can have different scores in different groups.
+
+Display: Show as a percentage (e.g., "87%") on member cards on the Group
+Dashboard and Group Members screen.
+
+--- STREAK ---
+
+The streak counts consecutive days on which the user completed ALL alarms they
+received across the group.
+
+  current_streak: how many days in a row they have completed alarms (resets to 0
+  if they miss even one alarm on a given day)
+
+  longest_streak: the maximum streak they have ever achieved
+
+Stored in group_members: current_streak, longest_streak.
+
+Updated by complete-challenge Edge Function:
+  - If the user completes the alarm on a day they also completed all previous
+    alarms, increment current_streak
+  - If the user misses an alarm, reset current_streak to 0
+  - If current_streak > longest_streak, update longest_streak
+
+Display: Show "🔥 5 day streak" on member cards.
+
+--- WHERE STATS APPEAR ---
+
+  - Group Dashboard → Member status grid → each card shows wake score + streak
+  - Group Members screen → detailed card for each member
+  - Profile screen → user's own stats across all their groups
+
+--------------------------------------------------------------------------------
+5.7 NOTIFICATIONS
+--------------------------------------------------------------------------------
+
+PURPOSE: Keep all group members informed about relevant events in real time.
+
+WAKEIT has 8 notification types. All notifications are:
+  1. Sent via FCM from Supabase Edge Functions
+  2. Logged in the notifications table in Supabase
+  3. Displayed via Notifee on the wakeit_social channel (IMPORTANCE_DEFAULT)
+  4. Visible in the Notification History screen in the app
+
+The 8 notification types:
+
+1. GROUP INVITATION
+   Trigger: Admin creates group and adds member, OR user joins via invite code
+   Recipient: The new member
+   Title: "You've been added to [Group Name]"
+   Body: "[Admin Name] has added you to their accountability group."
+
+2. ALARM CREATED
+   Trigger: Admin creates a new alarm for the group
+   Recipient: All active group members
+   Title: "New alarm in [Group Name]"
+   Body: "[Alarm Title] scheduled for [date] at [time]."
+
+3. ALARM UPDATED
+   Trigger: Admin edits an existing alarm
+   Recipient: All active group members
+   Title: "Alarm updated in [Group Name]"
+   Body: "[Alarm Title] has been moved to [new date] at [new time]."
+
+4. ALARM CANCELLED
+   Trigger: Admin deletes an alarm
+   Recipient: All active group members
+   Title: "Alarm cancelled in [Group Name]"
+   Body: "[Alarm Title] scheduled for [time] has been cancelled."
+
+5. MEMBER JOINED
+   Trigger: A new member joins the group (via invite code)
+   Recipient: Group Admin only
+   Title: "New member in [Group Name]"
+   Body: "[Member Name] has joined your group."
+
+6. MEMBER REMOVED
+   Trigger: Admin removes a member from the group
+   Recipient: The removed member
+   Title: "You've been removed from [Group Name]"
+   Body: "You no longer have access to this group's alarms."
+
+7. CHALLENGE COMPLETE
+   Trigger: A member successfully completes the math challenge
+   Recipient: Group Admin (so they can see group progress)
+   Title: "[Member Name] woke up!"
+   Body: "[Member Name] completed the [Alarm Title] challenge at [time]."
+   Note: This is a low-priority notification, shown but not intrusive.
+
+8. ALARM MISSED
+   Trigger: 5 minutes after alarm time, member has not completed challenge
+   Recipient: The member who missed + Group Admin
+   Member notification title: "You missed [Alarm Title]"
+   Member notification body: "You didn't complete the challenge in time."
+   Admin notification title: "[Member Name] missed [Alarm Title]"
+   Admin notification body: "[Member Name] did not complete the challenge."
+
+--- NOTIFICATION HISTORY SCREEN ---
+
+Shows all notifications for the logged-in user in reverse chronological order.
+Each notification shows:
+  - Icon representing the notification type
+  - Title and body
+  - Time ago (e.g., "2 hours ago", "Yesterday")
+  - Unread indicator (bold title + colored dot) for unread notifications
+
+Tapping a notification:
+  - Marks it as read (updates notifications.is_read = true in Supabase)
+  - Navigates to the relevant screen (e.g., tapping alarm notification goes
+    to Alarm Details)
+
+The notification badge count on the bottom tab bar should update in real time
+via Supabase Realtime subscription on the notifications table filtered by
+user_id = current user AND is_read = false.
+
+IMPORTANT: The Notification History screen shows notifications from Supabase
+(the notifications table). It is NOT the same as the Android notification tray.
+Both exist separately.
+
+
+================================================================================
+SECTION 6: ALL APP SCREENS — COMPLETE LIST & PURPOSE
+================================================================================
+
+WAKEIT has exactly 27 screens. They are organized into route groups using
+Expo Router file-based routing.
+
+Below each screen: the route path, who can access it, and what it contains.
+
+--- AUTH GROUP: app/(auth)/ ---
+These screens are only accessible when the user is NOT logged in.
+
+1. LOGIN
+   Route: app/(auth)/login
+   Access: Unauthenticated users
+   Purpose: Email/password login to existing account
+   Contents: Email field, password field (with show/hide), Log In button,
+   Forgot Password link, Sign Up link
+
+2. SIGN UP
+   Route: app/(auth)/signup
+   Access: Unauthenticated users
+   Purpose: Create a new account
+   Contents: Full name field, email field, password field, Sign Up button
+
+3. FORGOT PASSWORD
+   Route: app/(auth)/forgot-password
+   Access: Unauthenticated users
+   Purpose: Request password reset email
+   Contents: Email field, Send Reset Email button, Back to Login link
+
+4. SUBSCRIPTION PLANS
+   Route: app/(auth)/plans
+   Access: Newly signed up users (shown once post-signup)
+   Purpose: Allow user to purchase a plan or start free trial
+   Contents: Plan comparison cards for Member and Admin, purchase buttons,
+   Start Free Trial button, Restore Purchases link
+
+--- ONBOARDING GROUP: app/onboarding/ ---
+
+5. SPLASH
+   Route: app/index (root)
+   Access: All users on launch
+   Purpose: App launch animation, routing logic (auth check, onboarding check)
+   Contents: WAKEIT logo animation
+
+6. ONBOARDING SLIDE 1
+   Route: app/onboarding/slide1
+   Access: First-time users only
+   Purpose: Explain group accountability concept
+
+7. ONBOARDING SLIDE 2
+   Route: app/onboarding/slide2
+   Access: First-time users only
+   Purpose: Explain math challenge / no-snooze concept
+
+8. ONBOARDING SLIDE 3
+   Route: app/onboarding/slide3
+   Access: First-time users only
+   Purpose: Explain offline reliability / always works concept
+
+--- MAIN TABS GROUP: app/(tabs)/ ---
+These are the 3 bottom tab bar screens accessible to all logged-in users.
+
+9. HOME DASHBOARD
+   Route: app/(tabs)/index
+   Access: All authenticated users
+   Purpose: Overview of user's groups and upcoming alarms
+   Contents:
+     - Welcome message with user's name
+     - "Next Alarm" card showing the soonest upcoming alarm across all groups
+       (group name, alarm time, countdown)
+     - List of the user's groups (compact cards showing group name + next alarm)
+     - Recent notifications preview (last 3, with "See All" link)
+
+10. GROUPS LIST
+    Route: app/(tabs)/groups
+    Access: All authenticated users
+    Purpose: See and navigate all groups
+    Contents:
+      - Create Group button (Admin/Trial only)
+      - Join Group button (all users)
+      - List of all groups the user is in (GroupCard components)
+      - Empty state if no groups
+
+11. PROFILE
+    Route: app/(tabs)/profile
+    Access: All authenticated users
+    Purpose: User account info and settings access
+    Contents:
+      - User avatar (initials if no photo) + full name + email
+      - Current plan + expiry date
+      - Overall wake score across all groups
+      - Current streak (best streak across all groups)
+      - Links to: Settings, Help & Support, Notifications
+      - Log Out button
+
+--- GROUP SCREENS: app/group/ ---
+
+12. CREATE GROUP
+    Route: app/group/create
+    Access: Admin plan users and Free Trial users
+    Purpose: Create a new accountability group
+    Contents: Group name input, description input, default sound selector,
+    Create Group button
+
+13. JOIN GROUP
+    Route: app/group/join
+    Access: All authenticated users with valid plan
+    Purpose: Join a group using an invite code
+    Contents: 6-character invite code input, Join Group button, Cancel link
+
+14. GROUP DASHBOARD
+    Route: app/group/[id]/index
+    Access: Members of that specific group
+    Purpose: Main hub for a group — see alarms, member status, stats
+    Contents: Alarm countdown, alarm list, member status grid, group info,
+    Add Alarm button (Admin only)
+
+15. GROUP MEMBERS
+    Route: app/group/[id]/members
+    Access: Members of that specific group
+    Purpose: Detailed member stats and management
+    Contents: Member cards with stats, Remove button on each (Admin only)
+
+16. CREATE ALARM
+    Route: app/group/[id]/alarm/create
+    Access: Admin of that group
+    Purpose: Schedule a new alarm for the group
+    Contents: Title, date picker, time picker, difficulty selector, sound
+    selector, recurring toggle + day selector + end date, Save button
+
+17. EDIT ALARM
+    Route: app/group/[id]/alarm/[alarmId]/edit
+    Access: Admin of that group
+    Purpose: Modify an existing scheduled alarm
+    Contents: Same as Create Alarm, pre-filled with existing values
+
+18. ALARM DETAILS
+    Route: app/group/[id]/alarm/[alarmId]
+    Access: Members of that group
+    Purpose: Full detail view of one alarm
+    Contents: All alarm info, member completion grid, Edit/Delete buttons (Admin)
+
+19. ALARM SOUND SELECTION
+    Route: app/group/[id]/alarm/sound
+    Access: Admin of that group
+    Purpose: Choose or upload alarm sound
+    Contents: Preset sounds list, Upload File tab, Record Voice tab
+
+--- SYSTEM SCREENS ---
+
+20. SETTINGS
+    Route: app/settings
+    Access: All authenticated users
+    Purpose: Account management preferences
+    Contents:
+      - Account section: Change Email, Change Password, Delete Account
+      - About: App version, Privacy Policy link, Terms of Service link
+      - Danger zone: Delete Account (shows confirmation dialog)
+
+21. PERMISSION REQUIRED
+    Route: app/permissions
+    Access: Contextual (shown before permission requests)
+    Purpose: Explain and request device permissions
+    Contents: Permission icon, explanation text, Allow button, Not Now button
+
+22. NO INTERNET
+    Route: app/offline
+    Access: Shown automatically when offline detected
+    Purpose: Inform user they are offline while reassuring alarms still work
+    Contents: Offline illustration, "No internet connection" heading,
+    "Your scheduled alarms will still ring. Connect to sync new alarms." body,
+    Retry button
+
+--- ALARM SCREENS: app/alarm/ ---
+These screens are shown during the alarm firing sequence. They appear OUTSIDE
+the normal tab navigation — full screen, no tab bar.
+
+23. FULL SCREEN ALARM
+    Route: app/alarm/ring
+    Access: Triggered by AlarmManager, not navigated to manually
+    Purpose: Wake the user — show alarm is ringing
+    Contents: Current time (large), group name + alarm title, "I'm Awake —
+    Show Challenge" button. No dismiss. No snooze.
+
+24. MATH CHALLENGE
+    Route: app/alarm/challenge
+    Access: Navigated from Full Screen Alarm
+    Purpose: Force cognitive engagement to stop alarm
+    Contents: Math problem display, answer input display, custom numeric keypad
+    (0-9 + backspace), Submit button, attempt counter, timeout countdown
+
+25. CHALLENGE SUCCESS
+    Route: app/alarm/success
+    Access: Navigated from Math Challenge on correct answer
+    Purpose: Confirm completion, show stats
+    Contents: Green checkmark, "Challenge Complete!", completion time,
+    wake score update, streak update, navigation buttons
+
+26. ALARM MISSED
+    Route: app/alarm/missed
+    Access: Navigated from Math Challenge on timeout
+    Purpose: Inform user they missed the alarm
+    Contents: Red X animation, "Alarm Missed" heading, motivational message,
+    navigation buttons
+
+--- PAYMENT & SUPPORT ---
+
+27. PAYMENT SUCCESS
+    Route: app/payment/success
+    Access: Navigated after successful RevenueCat purchase
+    Purpose: Confirm subscription purchase
+    Contents: Checkmark animation, plan name, "You're all set!" heading,
+    plan benefits summary, "Start Using WAKEIT" button
+
+28. HELP & SUPPORT
+    Route: app/help
+    Access: All authenticated users
+    Purpose: Answer common questions and provide contact info
+    Contents: FAQ accordion (5-8 common questions), Contact email link,
+    App version number
+
+
+================================================================================
+SECTION 7: UI DESIGN SYSTEM
+================================================================================
+
+PURPOSE: Define every visual design token so the app looks consistent across all
+27 screens. The agent must use these exact values — do not use approximations or
+defaults.
+
+--- COLORS ---
+
+Background    : #F8FBF7   (off-white, used as the app-wide background)
+Surface       : #FFFFFF   (pure white, used for cards and bottom sheets)
+Primary       : #4CA771   (green, used for buttons, active states, highlights)
+Dark          : #013237   (very dark teal-green, used for headers and primary text)
+Accent        : #C0E6BA   (light green, used for badges, subtle backgrounds)
+Error         : #EF4444   (red, used for missed alarms and error states)
+Warning       : #F59E0B   (amber/orange, used for pending states)
+Text Primary  : #013237   (same as Dark — main body text)
+Text Secondary: #6B7280   (grey, used for subtitles and secondary info)
+Text Disabled : #9CA3AF   (light grey, used for placeholder text)
+Divider       : #E5E7EB   (very light grey, used for separator lines)
+
+--- TYPOGRAPHY ---
+
+Font family: Poppins (Google Fonts, all weights via Expo Google Fonts)
+
+Font sizes and weights:
+  Display    : 32px / Bold   — used for very large numbers (countdown timer, score)
+  H1         : 24px / Bold   — screen titles
+  H2         : 20px / SemiBold — section headings within screens
+  H3         : 16px / SemiBold — card titles, subsection headings
+  Body Large : 16px / Regular — main body text
+  Body       : 14px / Regular — secondary body text
+  Caption    : 12px / Regular — timestamps, labels, hint text
+  Button     : 16px / SemiBold — button label text
+
+Line height: 1.5x the font size for all text
+
+--- SPACING ---
+
+Base unit: 8px. All padding and margin must be multiples of 8.
+
+Common spacing values:
+  xs  : 4px
+  sm  : 8px
+  md  : 16px
+  lg  : 24px
+  xl  : 32px
+  xxl : 48px
+
+Screen padding (horizontal): 16px on left and right for all screens
+
+--- COMPONENTS ---
+
+BUTTONS:
+  Primary button:
+    - Background: #4CA771
+    - Text: #FFFFFF, 16px SemiBold Poppins
+    - Border radius: 12px
+    - Height: 52px
+    - Full width (stretches to fill container with 16px margins)
+    - Pressed state: opacity 0.85
+    - Disabled state: background #9CA3AF
+
+  Secondary button (outlined):
+    - Background: transparent
+    - Border: 1.5px solid #4CA771
+    - Text: #4CA771, 16px SemiBold Poppins
+    - Border radius: 12px
+    - Height: 52px
+
+  Danger button:
+    - Background: #EF4444
+    - Text: #FFFFFF, 16px SemiBold Poppins
+    - Border radius: 12px
+    - Height: 52px
+
+  Text button (link-style):
+    - No background, no border
+    - Text: #4CA771, 14px Regular Poppins, underline optional
+
+CARDS:
+  - Background: #FFFFFF
+  - Border radius: 20px
+  - Shadow: { color: '#000', offset: {x:0, y:4}, opacity: 0.08, radius: 16 }
+  - Padding: 16px
+
+BOTTOM SHEETS:
+  - Background: #FFFFFF
+  - Border radius (top corners only): 24px
+  - Handle indicator: 4px × 32px rounded pill, color #E5E7EB, centered at top
+  - Padding: 24px
+
+INPUT FIELDS:
+  - Background: #F8FBF7
+  - Border: 1.5px solid #E5E7EB
+  - Border (focused): 1.5px solid #4CA771
+  - Border (error): 1.5px solid #EF4444
+  - Border radius: 12px
+  - Height: 52px
+  - Font: 14px Regular Poppins, color #013237
+  - Padding horizontal: 16px
+  - Label above input: 12px SemiBold Poppins, color #6B7280
+
+STATUS COLORS (for member status on Group Dashboard):
+  Completed (green): background #DCFCE7, text #16A34A
+  Pending (orange) : background #FEF3C7, text #D97706
+  Missed (red)     : background #FEE2E2, text #DC2626
+
+--- NAVIGATION ---
+
+Bottom tab bar:
+  - 3 tabs only: Home, Groups, Profile
+  - Active tab icon and label: #4CA771 (Primary)
+  - Inactive tab icon and label: #9CA3AF (Text Disabled)
+  - Background: #FFFFFF
+  - Top border: 1px #E5E7EB
+  - Tab bar height: 60px + safe area bottom inset
+
+Tab icons:
+  Home   : house icon (Lucide: Home)
+  Groups : people/group icon (Lucide: Users)
+  Profile: person icon (Lucide: User)
+
+LOADING STATES:
+  Use skeleton screens (gray shimmer placeholders) for:
+  - Group Dashboard loading
+  - Group Members loading
+  - Notification History loading
+  Use button loading state (spinner + disabled) for form submissions.
+
+EMPTY STATES:
+  Use illustrated empty states (provided in design files) for:
+  - No groups yet
+  - No alarms in group
+  - No notifications
+  Never use plain text-only empty states.
+
+HAPTICS:
+  - Alarm ring: heavy continuous vibration pattern
+  - Wrong answer on challenge: short sharp vibration (error)
+  - Correct answer on challenge: double short vibration (success)
+  - Button taps: light tap feedback
+
+
+================================================================================
+SECTION 8: UI BUILD PROCESS (ANTIGRAVITY WORKFLOW)
+================================================================================
+
+PURPOSE: Define exactly how the Antigravity AI coding agent should receive and
+build UI designs. This ensures consistent, faithful implementation.
+
+--- THE PROCESS ---
+
+STEP 1: The designer (product owner) attaches 5 screen design images to the
+Antigravity chat.
+
+STEP 2: Antigravity reads the design images carefully and builds all 5 screens
+EXACTLY as shown in the designs. This means:
+  - Exact colors (use the color tokens from Section 7 — if the design shows
+    a green button, it must be #4CA771, not a different shade of green)
+  - Exact typography (Poppins, exact sizes from Section 7)
+  - Exact component layout (position of every element on screen)
+  - Exact spacing (use 8px grid from Section 7)
+  - Exact icon choices (Lucide icons as specified)
+  - Exact copy (text content visible in the design)
+
+STEP 3: After building the 5 screens, Antigravity confirms completion and asks
+for the next batch.
+
+STEP 4: The designer reviews the built screens. If any screen does not match
+the design, corrections are requested before proceeding to the next batch.
+
+STEP 5: The next 5 design images are attached and the cycle repeats until all
+27 screens are built.
+
+--- RULES FOR ANTIGRAVITY WHEN BUILDING UI ---
+
+1. DO NOT invent UI elements that are not in the design. If the design does not
+   show a button, do not add one. If the design shows 3 items in a list, build
+   the component to render a list (not hardcoded 3 items).
+
+2. DO NOT change colors. The design is authoritative. Use exact hex values.
+
+3. DO make components dynamic. If the design shows a group name, it should come
+   from a prop/state, not be hardcoded as "My Study Group".
+
+4. DO implement the complete design including: header, content, bottom navigation
+   (where applicable), loading states, and empty states.
+
+5. DO connect screens to real data where the API is already built. If the
+   Group Dashboard design is being built and the Supabase tables + Edge Functions
+   already exist, connect them — do not use mock data.
+
+6. IF a detail in the design is unclear (e.g., a color looks ambiguous, an icon
+   is not identifiable), ask before making an assumption.
+
+7. FOLLOW Section 7 design tokens for anything not explicitly shown in the
+   design images (e.g., if a new button type appears, use the Primary Button
+   spec from Section 7).
+
+8. KEYBOARD AVOIDANCE: For all screens with input fields, use KeyboardAvoidingView
+   with behavior="height" (this is the correct value for Android).
+   When iOS is added later, behavior="padding" is used for iOS.
+
+
+================================================================================
+SECTION 9: TECHNICAL ARCHITECTURE
+================================================================================
+
+--------------------------------------------------------------------------------
+9.1 TECHNOLOGY STACK
+--------------------------------------------------------------------------------
+
+Every technology choice is listed here with the reason it was chosen.
+
+REACT NATIVE + EXPO SDK 51+ (Bare Workflow)
+  What: Cross-platform mobile framework
+  Why: Allows building for Android (and later iOS) from one codebase
+  Why bare workflow (not managed): We need native Android code for AlarmManager
+  and BootReceiver. Expo managed workflow does not support writing native Java.
+
+TYPESCRIPT (strict mode)
+  What: Typed superset of JavaScript
+  Why: Catches bugs at compile time. All files use .ts or .tsx extensions.
+  Strict mode means no implicit any types, strict null checks enabled.
+
+EXPO ROUTER (file-based navigation)
+  What: File-system based routing for React Native (like Next.js for mobile)
+  Why: Clean URL-like navigation, automatic deep linking, easy tab setup
+  How: Files in /app directory automatically become screens
+
+ZUSTAND (state management)
+  What: Lightweight global state management library
+  Why: Simpler than Redux, no boilerplate, works well with TypeScript
+  Three stores: authStore (user + entitlements), groupStore (groups + members),
+  alarmStore (alarms + completions)
+
+SUPABASE (backend-as-a-service)
+  What: Open source Firebase alternative with PostgreSQL
+  Why: Provides database, auth, realtime, storage, and edge functions in one
+  Cost: Free tier is used. Limits: 500MB DB, 1GB storage, 2 req/sec on Edge Functions
+  Important: Start on free tier. Monitor usage. Upgrade at ~500 active users.
+
+SUPABASE AUTH
+  What: Authentication service built into Supabase
+  Why: Handles email/password auth, JWT generation, password reset — no custom auth needed
+  The JWT is included in all API calls to Supabase automatically by the JS client
+
+POSTGRESQL (via Supabase)
+  What: The database
+  Why: Supabase is built on PostgreSQL. Provides SQL queries, triggers, RLS.
+  Row Level Security is enabled on every table (see Section 9.11)
+
+SUPABASE REALTIME
+  What: WebSocket-based real-time data subscriptions
+  Why: Needed for the Group Dashboard to update live when members complete challenges
+  How: Subscribes to PostgreSQL table changes and pushes to connected clients
+
+SUPABASE STORAGE
+  What: File storage service
+  Why: Stores custom alarm sounds uploaded by Admins
+  Bucket: 'audio' bucket for all alarm sound files
+
+SUPABASE EDGE FUNCTIONS (Deno runtime)
+  What: Serverless functions that run on the edge
+  Why: All critical writes (create alarm, complete challenge, etc.) must be
+  validated server-side. Client cannot bypass plan limits. Edge Functions run
+  TypeScript/Deno.
+
+FIREBASE CLOUD MESSAGING (FCM v1 API)
+  What: Google's push notification service
+  Why: Industry standard for Android push notifications. Free.
+  Two types of FCM messages used:
+    1. Silent data messages (for alarm sync — no visible notification)
+    2. Display notifications (for social notifications like "New alarm added")
+  Note: Firebase account is already created. google-services.json must be
+  placed in /android/app/ before building.
+
+NOTIFEE
+  What: React Native notification library
+  Why: React Native's built-in notifications cannot do full-screen alarms,
+  cannot override Do Not Disturb, and cannot wake the screen. Notifee can.
+  Used for: Full-screen alarm display, wakeit_alarm channel, wakeit_social channel
+
+ANDROID ALARMMANAGER (native)
+  What: Android OS alarm scheduling API
+  Why: Only the OS-level AlarmManager can guarantee an alarm fires at an exact
+  time even when the app is closed and the device is in Doze mode.
+  Specifically uses: setExactAndAllowWhileIdle() — fires even in Doze mode
+  Requires: SCHEDULE_EXACT_ALARM permission (Android 12+) and
+  USE_EXACT_ALARM permission (Android 13+)
+  Implementation: Native Java classes AlarmReceiver.java and BootReceiver.java
+  are written in the /android/app/src/main/java/ directory
+
+EXPO SQLITE
+  What: SQLite database on the device
+  Why: Alarms must work offline. SQLite stores a local copy of all scheduled
+  alarms so AlarmManager can be scheduled without any network access.
+  The local_alarms table is the offline safety net.
+
+REVENUECAT SDK v7+
+  What: Subscription management platform
+  Why: Handles all complexities of Google Play Billing — receipt validation,
+  entitlement management, renewal handling, refund handling
+  Cost: Free up to $2,500/month tracked revenue. Sufficient for launch.
+  The app never talks to Google Play Billing directly. It always goes through RC.
+
+REACT NATIVE PAPER + CUSTOM COMPONENTS
+  What: Material Design component library + custom WAKEIT design components
+  Why: Provides base components (Modal, FAB, etc.) that are extended with the
+  WAKEIT design system
+
+EXPO GOOGLE FONTS — POPPINS
+  What: Google Fonts Poppins loaded via Expo
+  Why: Poppins is the brand typeface. All weights must be loaded on startup.
+
+EXPO VECTOR ICONS + LUCIDE REACT NATIVE
+  What: Icon libraries
+  Why: Comprehensive icon sets that cover all needed icons consistently
+
+EXPO EAS BUILD (free tier)
+  What: Cloud build service for React Native apps
+  Why: Builds Android .aab and .apk files without requiring a local development
+  machine capable of running Android Studio and Gradle in production mode.
+  Also builds iOS .ipa when iOS is added.
+
+--------------------------------------------------------------------------------
+9.2 COST PROFILE
+--------------------------------------------------------------------------------
+
+CURRENT TOTAL LAUNCH COST: ~$25 USD
+
+Service              | Cost         | Free Tier Limits
+---------------------|--------------|------------------------------------------
+Supabase             | Free         | 500MB DB, 1GB Storage, 50MB file upload,
+                     |              | 2 Edge Function requests/second
+Firebase FCM         | Free         | No practical limit on push messages
+RevenueCat           | Free         | Free up to $2,500/month tracked revenue
+Expo EAS Build       | Free         | Limited build minutes, slower queue
+Google Play          | $25 one-time | Required for Android app publication
+Apple App Store      | $99/year     | DEFERRED — register when iOS is ready
+---------------------|--------------|------------------------------------------
+TOTAL LAUNCH         | ~$25 USD     | Google Play registration only
+
+WHEN TO UPGRADE:
+  - Supabase Free → Supabase Pro ($25/month): At ~500 active users or when
+    approaching 500MB database storage
+  - EAS Build Free → EAS Build production: When faster build times are needed
+    (not urgent for development phase)
+
+--------------------------------------------------------------------------------
+9.3 DATABASE SCHEMA
+--------------------------------------------------------------------------------
+
+ALL TABLES have Row Level Security (RLS) enabled. See Section 9.11 for policies.
+ALL CRITICAL WRITES go through Edge Functions, not direct client inserts.
+ALL TIMESTAMPS are stored in UTC. Convert to local timezone in the app.
+ALL IDs are UUID type generated by PostgreSQL: uuid_generate_v4()
+
+--- TABLE 1: users ---
+Extends Supabase Auth. Created by trigger on auth.users insert.
+
+Column              | Type          | Constraints            | Description
+--------------------|---------------|------------------------|------------------
+id                  | uuid          | PK, FK → auth.users.id | Matches auth user
+email               | text          | UNIQUE NOT NULL        | User email
+full_name           | text          |                        | Display name
+avatar_url          | text          |                        | Profile photo URL
+plan_type           | text          | NOT NULL               | free_trial / member / admin
+trial_started_at    | timestamptz   |                        | Set at first signup
+trial_ends_at       | timestamptz   |                        | trial_started_at + 3 days
+revenuecat_user_id  | text          |                        | RC customer ID
+created_at          | timestamptz   | DEFAULT now()          |
+updated_at          | timestamptz   | DEFAULT now()          |
+
+plan_type values and what they mean:
+  'free_trial' : User is in their 3-day trial period (check trial_ends_at)
+  'member'     : Paid Member plan is active
+  'admin'      : Paid Admin plan is active
+
+--- TABLE 2: user_subscriptions ---
+Tracks subscription history. Updated by RevenueCat webhook.
+
+Column               | Type        | Constraints        | Description
+---------------------|-------------|--------------------|-----------------
+id                   | uuid        | PK                 |
+user_id              | uuid        | FK → users.id      |
+plan_type            | text        | NOT NULL           | member / admin
+status               | text        | NOT NULL           | active / expired / cancelled
+started_at           | timestamptz |                    | When subscription started
+expires_at           | timestamptz |                    | When it expires/expired
+revenuecat_product_id| text        |                    | RC product identifier
+updated_at           | timestamptz | DEFAULT now()      | Updated by webhook
+
+--- TABLE 3: groups ---
+Each group has one Admin and an invite code.
+
+Column           | Type        | Constraints              | Description
+-----------------|-------------|--------------------------|------------------
+id               | uuid        | PK                       |
+name             | text        | NOT NULL                 | Group display name
+description      | text        |                          | Optional description
+admin_id         | uuid        | FK → users.id, NOT NULL  | The group creator/admin
+invite_code      | text        | UNIQUE NOT NULL          | 6-char alphanumeric
+default_sound_url| text        |                          | Supabase Storage URL
+member_count     | int         | DEFAULT 0                | Cached, updated by trigger
+created_at       | timestamptz | DEFAULT now()            |
+is_active        | boolean     | DEFAULT true             | false if group deleted
+
+The invite_code is auto-generated when a group is created. Format: 6 uppercase
+alphanumeric characters (A-Z, 0-9). Example: "A3X9KM". Must be globally unique.
+
+--- TABLE 4: group_members ---
+Junction table tracking who is in which group and their performance stats.
+
+Column                | Type        | Constraints             | Description
+----------------------|-------------|-------------------------|------------------
+id                    | uuid        | PK                      |
+group_id              | uuid        | FK → groups.id          |
+user_id               | uuid        | FK → users.id           |
+joined_at             | timestamptz | DEFAULT now()           |
+is_active             | boolean     | DEFAULT true            | false = removed
+wake_score            | numeric     | DEFAULT 0               | 0-100 percentage
+total_alarms_received | int         | DEFAULT 0               |
+total_completed       | int         | DEFAULT 0               |
+current_streak        | int         | DEFAULT 0               |
+longest_streak        | int         | DEFAULT 0               |
+
+Unique constraint: (group_id, user_id) — a user can only be in a group once.
+When a member is removed, is_active is set to false (soft delete, not hard delete).
+
+--- TABLE 5: alarms ---
+Each alarm belongs to one group. Only the group's Admin can create alarms.
+
+Column             | Type        | Constraints             | Description
+-------------------|-------------|-------------------------|------------------
+id                 | uuid        | PK                      |
+group_id           | uuid        | FK → groups.id NOT NULL |
+created_by         | uuid        | FK → users.id NOT NULL  | Must be group admin
+title              | text        | NOT NULL                | Alarm display name
+alarm_time         | timestamptz | NOT NULL                | UTC alarm time
+is_recurring       | boolean     | DEFAULT false           |
+recurrence_days    | int[]       | NULLABLE                | [0-6], 0=Sun 6=Sat
+recurrence_end_date| date        | NULLABLE                | Max 30 days from creation
+difficulty         | text        | NOT NULL                | easy / medium / hard
+sound_url          | text        |                         | Override group default
+status             | text        | DEFAULT 'scheduled'     | See status values below
+created_at         | timestamptz | DEFAULT now()           |
+updated_at         | timestamptz | DEFAULT now()           |
+
+status values: 'scheduled', 'active', 'completed', 'cancelled'
+
+--- TABLE 6: alarm_completions ---
+One row per (alarm, user) pair. Tracks whether each member completed the alarm.
+
+Column               | Type        | Constraints             | Description
+---------------------|-------------|-------------------------|------------------
+id                   | uuid        | PK                      |
+alarm_id             | uuid        | FK → alarms.id          |
+user_id              | uuid        | FK → users.id           |
+group_id             | uuid        | FK → groups.id          | Denormalized for speed
+status               | text        | NOT NULL                | completed/missed/pending/cancelled
+completed_at         | timestamptz | NULLABLE                | Set when challenge solved
+attempts             | int         | DEFAULT 0               | Wrong answers count
+challenge_difficulty | text        |                         | Snapshot at alarm time
+
+status values: 'pending', 'completed', 'missed', 'cancelled'
+Rows are inserted by create-alarm Edge Function when alarm is created (status=pending).
+Rows are updated by complete-challenge Edge Function after alarm fires.
+
+--- TABLE 7: device_tokens ---
+Stores FCM tokens for each user's device. Used to send push notifications.
+
+Column     | Type        | Constraints         | Description
+-----------|-------------|---------------------|------------------
+id         | uuid        | PK                  |
+user_id    | uuid        | FK → users.id       |
+fcm_token  | text        | NOT NULL            | Firebase device token
+platform   | text        | DEFAULT 'android'   | android / ios (future)
+updated_at | timestamptz | DEFAULT now()       | Refresh on every app open
+is_active  | boolean     | DEFAULT true        |
+
+IMPORTANT: FCM tokens can change. On every app open, call Firebase to get the
+current token and upsert it into device_tokens for the current user. Use
+ON CONFLICT (user_id, platform) DO UPDATE SET fcm_token = EXCLUDED.fcm_token.
+
+--- TABLE 8: notifications ---
+Notification log. Every notification sent is logged here.
+
+Column     | Type        | Constraints             | Description
+-----------|-------------|-------------------------|------------------
+id         | uuid        | PK                      |
+user_id    | uuid        | FK → users.id           | Notification recipient
+type       | text        | NOT NULL                | See notification types in 5.7
+title      | text        | NOT NULL                |
+body       | text        |                         |
+data       | jsonb       |                         | Contextual payload
+is_read    | boolean     | DEFAULT false           |
+created_at | timestamptz | DEFAULT now()           |
+
+The 'data' jsonb field contains context needed for navigation:
+  Example: { "alarm_id": "uuid", "group_id": "uuid", "type": "alarm_created" }
+  The app uses this to navigate to the correct screen when notification is tapped.
+
+--------------------------------------------------------------------------------
+9.4 SUPABASE EDGE FUNCTIONS
+--------------------------------------------------------------------------------
+
+There are 7 active Edge Functions in v1.0. All Edge Functions:
+  - Are written in TypeScript (Deno runtime)
+  - Require a valid Supabase Auth JWT in the Authorization header
+  - Return JSON responses with { success: true, data: {...} } or { error: "message" }
+  - Use the Supabase service role key internally (not the anon key) to bypass RLS
+    for writes that the Edge Function has already validated
+  - Log errors to Supabase Edge Function logs
+
+--- EDGE FUNCTION 1: create-alarm ---
+
+URL: POST /functions/v1/create-alarm
+
+Request body:
+{
+  "group_id": "uuid",
+  "title": "Morning Wake Up",
+  "alarm_time": "2026-06-15T01:00:00Z",  // UTC ISO 8601
+  "difficulty": "medium",
+  "sound_url": "https://...",             // optional, null if using group default
+  "is_recurring": false,
+  "recurrence_days": null,                // or [1,3,5] for Mon/Wed/Fri
+  "recurrence_end_date": null             // or "2026-07-15"
+}
+
+What it does:
+  1. Extract user_id from JWT
+  2. Verify user is the Admin of group_id
+  3. Check Admin plan limits: count existing alarms for this group, if >= 20 return error
+  4. Insert row into alarms table
+  5. Fetch all active members of this group from group_members
+     (where group_id = ? AND is_active = true)
+  6. For each active member, insert an alarm_completions row:
+     { alarm_id, user_id, group_id, status: 'pending' }
+  7. Fetch FCM tokens for all active members from device_tokens
+     (where user_id IN (member_ids) AND is_active = true)
+  8. Build FCM silent data payload:
+     {
+       "type": "alarm_sync",
+       "alarm_id": "uuid",
+       "alarm_time_utc": "2026-06-15T01:00:00Z",
+       "difficulty": "medium",
+       "sound_url": "https://...",
+       "group_id": "uuid",
+       "group_name": "Study Group",
+       "alarm_title": "Morning Wake Up"
+     }
+  9. Send FCM message to all device tokens via FCM v1 API
+     (send individually or in batches of up to 500 — FCM supports multicast)
+  10. Insert notification log records for each member (type: 'alarm_created')
+  11. Return { success: true, alarm_id: "uuid" }
+
+Error cases:
+  - Not group admin → 403: "You must be the group admin to create alarms"
+  - Alarm limit reached → 403: "You've reached the alarm limit for this group"
+  - Invalid alarm time (past) → 400: "Alarm time must be in the future"
+
+--- EDGE FUNCTION 2: update-alarm ---
+
+URL: POST /functions/v1/update-alarm
+
+Request body:
+{
+  "alarm_id": "uuid",
+  "title": "Updated Title",            // optional
+  "alarm_time": "2026-06-15T02:00:00Z", // optional, must be future
+  "difficulty": "hard",                // optional
+  "sound_url": "https://...",          // optional
+  "is_recurring": false,               // optional
+  "recurrence_days": null,             // optional
+  "recurrence_end_date": null          // optional
+}
+
+What it does:
+  1. Extract user_id from JWT
+  2. Fetch alarm by alarm_id, verify it exists and status = 'scheduled'
+  3. Verify user is the Admin of the alarm's group
+  4. Verify alarm is more than 1 minute in the future
+  5. Update the alarms table row with the new values
+  6. Build FCM alarm_update payload:
+     { "type": "alarm_update", "alarm_id": "uuid", "alarm_time_utc": "...",
+       "difficulty": "hard", "sound_url": "...", "alarm_title": "..." }
+  7. Fetch all active member FCM tokens for this group
+  8. Send FCM to all devices
+  9. Insert notification log records (type: 'alarm_updated')
+  10. Return { success: true }
+
+Error cases:
+  - Not group admin → 403
+  - Alarm not found or not scheduled → 404
+  - Less than 1 minute to alarm → 400: "Alarm rings too soon to edit"
+
+--- EDGE FUNCTION 3: delete-alarm ---
+
+URL: POST /functions/v1/delete-alarm
+
+Request body:
+{
+  "alarm_id": "uuid"
+}
+
+What it does:
+  1. Extract user_id from JWT
+  2. Fetch alarm, verify it exists
+  3. Verify user is Admin of alarm's group
+  4. Update alarms table: status = 'cancelled'
+  5. Update all alarm_completions for this alarm: status = 'cancelled'
+  6. Build FCM alarm_cancel payload:
+     { "type": "alarm_cancel", "alarm_id": "uuid" }
+  7. Fetch all active member FCM tokens
+  8. Send FCM to all devices
+  9. Insert notification log records (type: 'alarm_cancelled')
+  10. Return { success: true }
+
+Error cases:
+  - Not group admin → 403
+  - Alarm not found → 404
+
+--- EDGE FUNCTION 4: complete-challenge ---
+
+URL: POST /functions/v1/complete-challenge
+
+Request body:
+{
+  "alarm_id": "uuid",
+  "status": "completed",      // or "missed"
+  "completed_at": "2026-06-15T01:03:22Z",  // UTC, only if status = completed
+  "attempts": 2               // number of wrong answers before correct one
+}
+
+What it does:
+  1. Extract user_id from JWT
+  2. Find alarm_completion row: alarm_id = ? AND user_id = ? AND status = 'pending'
+  3. Update alarm_completion:
+     - status = 'completed' or 'missed'
+     - completed_at = value from request (if completed)
+     - attempts = value from request
+     - challenge_difficulty = difficulty from alarm record (snapshot)
+  4. Fetch current group_members stats for this user in this group
+  5. Recalculate wake_score:
+     total_completed = existing + (1 if completed else 0)
+     total_alarms_received = existing + 1
+     wake_score = (total_completed / total_alarms_received) * 100
+  6. Update streak:
+     If completed:
+       Check if user completed all alarms from yesterday (to maintain streak)
+       If yes: current_streak = current_streak + 1
+       If no (streak broken then resumed): current_streak = 1
+     If missed:
+       current_streak = 0
+     If current_streak > longest_streak: longest_streak = current_streak
+  7. Update group_members row with new wake_score, total_completed,
+     total_alarms_received, current_streak, longest_streak
+  8. If status = 'completed', send FCM notification to Admin:
+     { type: 'challenge_complete', member_name: "...", alarm_title: "...",
+       completed_at: "..." }
+  9. Insert notification log records
+  10. Return { success: true, wake_score: 87, current_streak: 5 }
+
+Error cases:
+  - No pending completion found → 404 (may already have been completed)
+  - Invalid status value → 400
+
+--- EDGE FUNCTION 5: join-group ---
+
+URL: POST /functions/v1/join-group
+
+Request body:
+{
+  "invite_code": "A3X9KM"
+}
+
+What it does:
+  1. Extract user_id from JWT
+  2. Look up group by invite_code where is_active = true
+  3. If not found: return 404 "Invalid invite code"
+  4. Verify user has a valid plan:
+     - plan_type = 'member' or 'admin' or (plan_type = 'free_trial' AND trial_ends_at > now())
+     - If not: return 403 "You need a plan to join groups"
+  5. Check if user is already a member (group_members row with is_active = true)
+     - If yes: return 400 "You're already in this group"
+  6. Check member count against plan limit (20 for Admin plan groups)
+     - If full: return 403 "This group is full"
+  7. Insert group_members row:
+     { group_id, user_id, is_active: true, wake_score: 0, ... }
+  8. Update groups.member_count + 1
+  9. Send FCM notification to group Admin: "New member joined"
+  10. Insert notification log for Admin
+  11. Return { success: true, group_id: "uuid", group_name: "..." }
+
+--- EDGE FUNCTION 6: remove-member ---
+
+URL: POST /functions/v1/remove-member
+
+Request body:
+{
+  "group_id": "uuid",
+  "user_id": "uuid"   // the user to remove (not the requesting admin)
+}
+
+What it does:
+  1. Extract requesting user_id from JWT
+  2. Verify requesting user is Admin of group_id
+  3. Verify target user_id is an active member of group_id
+  4. Verify Admin is not trying to remove themselves
+  5. Set group_members.is_active = false for the target user in this group
+  6. Update groups.member_count - 1
+  7. Send FCM data push to removed member's device(s):
+     { "type": "member_removed", "group_id": "uuid", "group_name": "..." }
+  8. Insert notification log for removed member (type: 'member_removed')
+  9. Return { success: true }
+
+What happens on the removed member's device:
+  - FCM handler receives member_removed message
+  - App cancels all AlarmManager entries for alarms belonging to this group
+  - App deletes all local_alarms rows where group_id matches
+  - App removes the group from the groups screen
+  - If user is currently on that group's dashboard, navigate them to Groups List
+
+--- EDGE FUNCTION 7: revenuecat-webhook ---
+
+URL: POST /functions/v1/revenuecat-webhook
+
+What it does:
+  1. Validate the Authorization header contains the RevenueCat webhook secret
+     (stored as an Edge Function secret in Supabase, not hardcoded)
+  2. Parse the event type from the webhook body
+  3. Handle these event types:
+     INITIAL_PURCHASE:
+       - Find user by revenuecat_user_id
+       - Insert user_subscriptions row with status = 'active'
+       - Update users.plan_type to match purchased plan
+     RENEWAL:
+       - Update user_subscriptions: status = 'active', expires_at = new date
+     CANCELLATION:
+       - Update user_subscriptions: status = 'cancelled'
+       - Do NOT change users.plan_type yet — they keep access until expires_at
+     EXPIRATION:
+       - Update user_subscriptions: status = 'expired'
+       - Update users.plan_type = 'free_trial' (or a new 'expired' state)
+       - Note: This means they lose creation rights, not receiving rights
+  4. Return HTTP 200 to acknowledge receipt
+
+If the webhook secret is wrong: return 401 immediately, log the attempt.
+RevenueCat will retry failed webhooks — the function must be idempotent.
+
+--------------------------------------------------------------------------------
+9.5 FIREBASE CLOUD MESSAGING (FCM)
+--------------------------------------------------------------------------------
+
+FCM is used to deliver information to devices in two ways:
+
+TYPE 1: SILENT DATA MESSAGES (no visible notification to user)
+  Used for: alarm_sync, alarm_update, alarm_cancel, member_removed
+  These are data-only FCM messages with no 'notification' field
+  They wake the device's background service (Firebase Messaging headless task)
+  The headless task processes the data and takes action (schedule alarm, cancel, etc.)
+  The user sees NO notification when these arrive. They are silent.
+
+TYPE 2: DISPLAY NOTIFICATIONS (visible to user in notification tray)
+  Used for: all 8 notification types in Section 5.7
+  These are FCM messages that cause Notifee to show a notification
+  They appear in the Android notification tray
+  They are also logged to the notifications table in Supabase
+
+--- FCM PAYLOAD SPECIFICATIONS ---
+
+ALARM SYNC (silent data message):
+{
+  "data": {
+    "type": "alarm_sync",
+    "alarm_id": "uuid-string",
+    "alarm_time_utc": "2026-06-15T01:00:00Z",
+    "difficulty": "medium",
+    "sound_url": "https://supabase-url/storage/v1/object/public/audio/...",
+    "group_id": "uuid-string",
+    "group_name": "Study Group",
+    "alarm_title": "Morning Wake Up",
+    "is_recurring": "false",
+    "recurrence_days": "",         // JSON string of array e.g. "[1,3,5]" or ""
+    "recurrence_end_date": ""      // date string or ""
+  }
+}
+Note: All data values in FCM must be strings. Parse numbers/booleans/arrays
+in the device-side handler.
+
+ALARM UPDATE (silent data message):
+{
+  "data": {
+    "type": "alarm_update",
+    "alarm_id": "uuid-string",
+    "alarm_time_utc": "2026-06-15T02:00:00Z",
+    "difficulty": "hard",
+    "sound_url": "https://...",
+    "alarm_title": "Updated Title"
+  }
+}
+
+ALARM CANCEL (silent data message):
+{
+  "data": {
+    "type": "alarm_cancel",
+    "alarm_id": "uuid-string"
+  }
+}
+
+MEMBER REMOVED (silent data message):
+{
+  "data": {
+    "type": "member_removed",
+    "group_id": "uuid-string",
+    "group_name": "Study Group"
+  }
+}
+
+--- FCM BACKGROUND HANDLER (on device) ---
+
+In lib/fcm.ts, register a Firebase Messaging background handler:
+
+  messaging().setBackgroundMessageHandler(async remoteMessage => {
+    const data = remoteMessage.data;
+    switch (data.type) {
+      case 'alarm_sync':
+        await handleAlarmSync(data);
+        break;
+      case 'alarm_update':
+        await handleAlarmUpdate(data);
+        break;
+      case 'alarm_cancel':
+        await handleAlarmCancel(data);
+        break;
+      case 'member_removed':
+        await handleMemberRemoved(data);
+        break;
+    }
+  });
+
+This handler runs even when the app is force-killed. It runs as a headless task.
+
+handleAlarmSync(data):
+  1. Parse alarm_time_utc → convert to local timezone → alarm_time_local
+  2. Upsert row into local SQLite local_alarms table
+  3. If sound_url is not empty, download the audio file and save to local file system
+     Update local_alarms.sound_path with local file path
+  4. Call AlarmManager to schedule: scheduleAlarm(alarm_id, alarm_time_local_ms)
+  5. If is_recurring, calculate all future occurrences and schedule each one
+
+handleAlarmUpdate(data):
+  1. Cancel existing AlarmManager alarm for this alarm_id
+  2. Delete existing local_alarms row for this alarm_id
+  3. Re-insert updated row into local_alarms
+  4. Reschedule with AlarmManager
+
+handleAlarmCancel(data):
+  1. Cancel AlarmManager alarm for this alarm_id
+  2. Update local_alarms.status = 'cancelled' (or delete the row)
+
+handleMemberRemoved(data):
+  1. Get all alarm_ids from local_alarms where group_id matches
+  2. Cancel AlarmManager for each alarm_id
+  3. Delete all local_alarms rows where group_id matches
+  4. Update local state (groupStore) to remove this group
+
+--------------------------------------------------------------------------------
+9.6 ALARM DELIVERY PIPELINE — COMPLETE SEQUENCE
+--------------------------------------------------------------------------------
+
+This is the most important sequence in the entire app. Read it carefully.
+
+PHASE 1: ADMIN CREATES ALARM (requires internet)
+  T=0: Admin taps "Save Alarm" in Create Alarm screen
+  T=0: App POSTs to create-alarm Edge Function with alarm details
+  T=1s: Edge Function inserts alarm into Supabase PostgreSQL
+  T=1s: Edge Function creates alarm_completion rows for all members
+  T=2s: Edge Function sends FCM data messages to all member devices
+  T=2s: App receives { success: true, alarm_id } and shows alarm in Group Dashboard
+
+PHASE 2: DEVICE RECEIVES ALARM DATA (requires internet — happens silently)
+  T+few seconds: Member device receives FCM silent data message
+  T+few seconds: Firebase Messaging headless task wakes up
+  T+few seconds: Handler parses alarm data
+  T+few seconds: Writes alarm to local SQLite: INSERT OR REPLACE INTO local_alarms
+  T+few seconds: Downloads alarm sound file to local storage (if custom)
+  T+few seconds: Calls native AlarmManager.setExactAndAllowWhileIdle()
+  → INTERNET IS NO LONGER NEEDED AFTER THIS POINT ←
+
+PHASE 3: ALARM FIRES (works with no internet)
+  T=alarm_time: Android OS fires the AlarmManager alarm regardless of:
+    - Whether the app is open, closed, or force-killed
+    - Whether there is internet connectivity
+    - Whether the device is in Doze mode (setExactAndAllowWhileIdle bypasses Doze)
+    - Whether the device was rebooted (BootReceiver reschedules after reboot)
+  T=alarm_time: AlarmReceiver.java (native) runs
+  T=alarm_time: AlarmReceiver calls Notifee to display full-screen notification
+  T=alarm_time: AlarmScreen React Native component opens
+  T=alarm_time: Volume set to max, alarm sound plays, vibration starts
+  T=alarm_time: Math Challenge timer starts (user has 5 minutes)
+
+PHASE 4: CHALLENGE COMPLETION (internet preferred but will retry if offline)
+  T=completion: User solves math challenge
+  T=completion: Alarm stops, Challenge Success screen shows
+  T=completion: App POSTs to complete-challenge Edge Function
+    If internet available: completes immediately
+    If offline: queued and retried when internet returns (use a simple retry queue)
+  T=completion+1s: Edge Function updates Supabase
+  T=completion+1s: Supabase Realtime pushes change to Group Dashboard
+  T=completion+1s: All group members see this member's status change to green
+
+--------------------------------------------------------------------------------
+9.7 OFFLINE ARCHITECTURE
+--------------------------------------------------------------------------------
+
+WAKEIT must work offline. This section explains exactly what works and what
+does not work when the device has no internet.
+
+WORKS OFFLINE:
+  ✓ Alarm rings (from AlarmManager scheduled in SQLite)
+  ✓ Full-screen alarm UI displays
+  ✓ Math challenge works (problem generated on-device)
+  ✓ App opens and shows cached group/alarm data (from last sync)
+  ✓ Alarm countdown timer counts down correctly
+
+DOES NOT WORK OFFLINE (needs internet):
+  ✗ New alarms cannot be received (FCM requires internet)
+  ✗ Challenge completion cannot be posted (retries when internet returns)
+  ✗ Group Dashboard real-time updates do not work
+  ✗ Creating/joining groups
+  ✗ Scheduling new alarms
+
+When the app detects no internet:
+  1. Show the No Internet screen (app/offline)
+  2. Display message: "No internet. Your alarms are still scheduled and will ring."
+  3. Show "Retry" button that attempts to reconnect
+  4. Allow user to dismiss and see cached data (read-only)
+
+RETRY QUEUE for offline completions:
+  If complete-challenge POST fails due to no internet:
+  1. Store the completion data in a local queue (SQLite or AsyncStorage)
+     Queue item: { alarm_id, status, completed_at, attempts, queued_at }
+  2. When internet returns (detected via NetInfo), process the queue
+  3. Send completions in order (oldest first)
+  4. Clear processed items from queue
+
+--------------------------------------------------------------------------------
+9.8 LOCAL SQLITE DATABASE
+--------------------------------------------------------------------------------
+
+The local SQLite database on each device has one table: local_alarms
+
+Table: local_alarms
+
+Column            | Type    | Constraint         | Description
+------------------|---------|--------------------|---------------------------------
+alarm_id          | TEXT    | PRIMARY KEY        | UUID from Supabase (matches remote)
+group_id          | TEXT    | NOT NULL           | Group UUID
+group_name        | TEXT    |                    | Cached group name (for display offline)
+alarm_time_utc    | TEXT    | NOT NULL           | ISO 8601 UTC string
+alarm_time_local  | TEXT    | NOT NULL           | ISO 8601 local timezone string
+difficulty        | TEXT    | NOT NULL           | easy / medium / hard
+sound_path        | TEXT    |                    | Local file path or bundled asset name
+is_recurring      | INTEGER | DEFAULT 0          | 0 = false, 1 = true
+recurrence_days   | TEXT    |                    | JSON string e.g. "[1,3,5]"
+recurrence_end    | TEXT    |                    | Date string "YYYY-MM-DD" or null
+status            | TEXT    | DEFAULT 'scheduled'| scheduled / cancelled / completed
+created_at        | TEXT    | DEFAULT datetime() | Local creation timestamp
+
+This database is managed by lib/sqlite.ts which provides these functions:
+  insertOrUpdateAlarm(alarm: LocalAlarm): Promise<void>
+  cancelAlarm(alarm_id: string): Promise<void>
+  deleteAlarmsForGroup(group_id: string): Promise<void>
+  getFutureAlarms(): Promise<LocalAlarm[]>   // used by BootReceiver
+  getAllAlarms(): Promise<LocalAlarm[]>
+  getAlarm(alarm_id: string): Promise<LocalAlarm | null>
+
+--------------------------------------------------------------------------------
+9.9 SUPABASE REALTIME
+--------------------------------------------------------------------------------
+
+Supabase Realtime is used to push changes to connected clients via WebSocket.
+When a row changes in the database, all clients subscribed to that channel
+receive the change instantly without polling.
+
+Three channels are used:
+
+CHANNEL 1: group:{group_id}:completions
+  Table: alarm_completions
+  Filter: group_id = eq.{group_id}
+  Events: UPDATE (when a member's status changes from pending to completed/missed)
+  Purpose: Group Dashboard updates live when members complete challenges
+  Subscribe on: entering Group Dashboard screen
+  Unsubscribe on: leaving Group Dashboard screen
+
+CHANNEL 2: group:{group_id}:alarms
+  Table: alarms
+  Filter: group_id = eq.{group_id}
+  Events: INSERT, UPDATE (new alarms or alarm edits)
+  Purpose: New alarms appear on Group Dashboard without refresh
+  Subscribe on: entering Group Dashboard screen
+  Unsubscribe on: leaving Group Dashboard screen
+
+CHANNEL 3: user:{user_id}:notifications
+  Table: notifications
+  Filter: user_id = eq.{user_id}
+  Events: INSERT (new notification)
+  Purpose: Update notification badge count on tab bar in real time
+  Subscribe on: app foreground (subscribe once when user logs in)
+  Unsubscribe on: app logout
+
+How to subscribe (example for channel 1):
+  const subscription = supabase
+    .channel(`group:${groupId}:completions`)
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'alarm_completions',
+      filter: `group_id=eq.${groupId}`
+    }, (payload) => {
+      // payload.new contains the updated row
+      // Update groupStore / local state to reflect new completion status
+    })
+    .subscribe();
+
+  // On screen unmount:
+  supabase.removeChannel(subscription);
+
+--------------------------------------------------------------------------------
+9.10 REVENUECAT & SUBSCRIPTIONS
+--------------------------------------------------------------------------------
+
+RevenueCat is a subscription management platform. It sits between the app and
+Google Play Billing, handling all the complexity.
+
+INITIALIZATION:
+  In the app's root component (app/_layout.tsx), initialize RevenueCat:
+    Purchases.configure({ apiKey: 'your_rc_api_key' });
+    // Set the user ID to the Supabase user ID so RC and Supabase are linked:
+    Purchases.logIn(supabaseUserId);
+
+ON APP LAUNCH:
+  const customerInfo = await Purchases.getCustomerInfo();
+  const entitlements = customerInfo.entitlements.active;
+  // Store in authStore:
+  authStore.setEntitlements(entitlements);
+  // entitlements['wakeit_admin'] exists → user is Admin
+  // entitlements['wakeit_member'] exists → user is Member
+
+PURCHASE FLOW (when user taps "Choose Admin" or "Choose Member"):
+  const offerings = await Purchases.getOfferings();
+  const adminPackage = offerings.current.availablePackages.find(
+    p => p.product.identifier === 'wakeit_admin_annual'
+  );
+  const { customerInfo } = await Purchases.purchasePackage(adminPackage);
+  // After purchase, check new entitlements and update authStore
+  // The RevenueCat webhook will also update Supabase async
+
+RESTORE PURCHASES (for reinstalls):
+  const customerInfo = await Purchases.restorePurchases();
+  // This re-links the user's Google Play purchases to RevenueCat
+  // Update authStore with restored entitlements
+
+ENTITLEMENT CHECK in UI:
+  // In any component that needs plan gating:
+  const { entitlements } = useAuthStore();
+  const isAdmin = !!entitlements['wakeit_admin'];
+  const isMember = !!entitlements['wakeit_member'];
+  const isOnTrial = user.plan_type === 'free_trial' && 
+                    new Date(user.trial_ends_at) > new Date();
+  const canCreateGroups = isAdmin || isOnTrial;
+
+--------------------------------------------------------------------------------
+9.11 ROW LEVEL SECURITY (RLS) POLICIES
+--------------------------------------------------------------------------------
+
+RLS ensures users can only read and write their own data. Even if an attacker
+gets the Supabase anon key, they cannot read another user's data.
+
+TABLE: users
+  Policy: SELECT → auth.uid() = id
+  Policy: UPDATE → auth.uid() = id
+
+TABLE: user_subscriptions
+  Policy: SELECT → user_id = auth.uid()
+
+TABLE: groups
+  Policy: SELECT → user is active member OR user is admin
+    Condition: EXISTS(
+      SELECT 1 FROM group_members 
+      WHERE group_id = groups.id 
+      AND user_id = auth.uid() 
+      AND is_active = true
+    )
+  Policy: INSERT, UPDATE, DELETE → Edge Function only (service role bypasses RLS)
+
+TABLE: group_members
+  Policy: SELECT → user_id = auth.uid() OR user is admin of that group
+  Policy: INSERT, UPDATE, DELETE → Edge Function only
+
+TABLE: alarms
+  Policy: SELECT → user is active member of the alarm's group
+  Policy: INSERT, UPDATE, DELETE → Edge Function only (service role)
+
+TABLE: alarm_completions
+  Policy: SELECT → own rows (user_id = auth.uid()) OR user is group admin
+  Policy: UPDATE → Edge Function only
+
+TABLE: device_tokens
+  Policy: ALL operations → user_id = auth.uid()
+
+TABLE: notifications
+  Policy: SELECT → user_id = auth.uid()
+  Policy: UPDATE (is_read only) → user_id = auth.uid()
+  Policy: INSERT → Edge Function only
+
+--------------------------------------------------------------------------------
+9.12 ANDROID PERMISSIONS
+--------------------------------------------------------------------------------
+
+These permissions must be declared in /android/app/src/main/AndroidManifest.xml
+
+Permission                                    | When to request
+----------------------------------------------|----------------------------------
+RECEIVE_BOOT_COMPLETED                        | Declared only, no runtime request
+SCHEDULE_EXACT_ALARM (Android 12+)            | On first alarm creation attempt
+USE_EXACT_ALARM (Android 13+)                 | On first alarm creation attempt
+VIBRATE                                       | Declared only, no runtime request
+WAKE_LOCK                                     | Declared only, no runtime request
+FOREGROUND_SERVICE                            | Declared only, no runtime request
+POST_NOTIFICATIONS (Android 13+)              | On first app open (permission required screen)
+RECORD_AUDIO                                  | When user taps Record Voice Alarm
+READ_EXTERNAL_STORAGE                         | When user taps Upload Audio File
+com.google.android.c2dm.permission.RECEIVE    | Declared only (Firebase requires it)
+
+HOW TO REQUEST PERMISSIONS IN APP:
+  Use react-native-permissions library.
+  Always show Permission Required screen (Section 5.1) before requesting.
+  On Android 12+, SCHEDULE_EXACT_ALARM requires opening the system settings
+  screen (ACTION_REQUEST_SCHEDULE_EXACT_ALARM intent) — it cannot be requested
+  via the normal runtime permission dialog.
+
+IMPORTANT: minSdkVersion must be 26 (Android 8.0) for reliable AlarmManager
+behavior. targetSdkVersion must be 34 (required by Play Store).
+
+--- NATIVE JAVA FILES REQUIRED ---
+
+These two Java files must be created in the Android native project:
+
+FILE 1: BootReceiver.java
+Path: android/app/src/main/java/com/yourpackage/BootReceiver.java
+
+Purpose: Receives RECEIVE_BOOT_COMPLETED broadcast when device restarts.
+Queries local SQLite for all future alarms and reschedules them with AlarmManager.
+
+Manifest entry:
+  <receiver android:name=".BootReceiver" android:exported="true">
+    <intent-filter>
+      <action android:name="android.intent.action.BOOT_COMPLETED" />
+    </intent-filter>
+  </receiver>
+
+FILE 2: AlarmReceiver.java
+Path: android/app/src/main/java/com/yourpackage/AlarmReceiver.java
+
+Purpose: Receives the AlarmManager broadcast when an alarm fires.
+Launches the React Native app and navigates to the alarm screen.
+Triggers Notifee to display the full-screen notification.
+
+Manifest entry:
+  <receiver android:name=".AlarmReceiver" android:exported="true">
+    <intent-filter>
+      <action android:name="com.yourpackage.ALARM_RING" />
+    </intent-filter>
+  </receiver>
+
+--------------------------------------------------------------------------------
+9.13 PROJECT FILE STRUCTURE
+--------------------------------------------------------------------------------
+
+wakeit/
+│
+├── app/                              ← All screens (Expo Router)
+│   ├── _layout.tsx                   ← Root layout: auth check, RC init, FCM setup
+│   ├── index.tsx                     ← Splash screen + routing logic
+│   ├── (auth)/
+│   │   ├── _layout.tsx               ← Auth stack layout (redirect if logged in)
+│   │   ├── login.tsx
+│   │   ├── signup.tsx
+│   │   ├── forgot-password.tsx
+│   │   └── plans.tsx                 ← Plan selection post-signup
+│   ├── (tabs)/
+│   │   ├── _layout.tsx               ← Bottom tab bar definition
+│   │   ├── index.tsx                 ← Home Dashboard
+│   │   ├── groups.tsx                ← Groups List
+│   │   └── profile.tsx
+│   ├── onboarding/
+│   │   ├── slide1.tsx
+│   │   ├── slide2.tsx
+│   │   └── slide3.tsx
+│   ├── alarm/
+│   │   ├── ring.tsx                  ← Full-screen alarm (no tab bar)
+│   │   ├── challenge.tsx             ← Math challenge (no tab bar)
+│   │   ├── success.tsx               ← Challenge success (no tab bar)
+│   │   └── missed.tsx                ← Alarm missed (no tab bar)
+│   ├── group/
+│   │   ├── create.tsx                ← Create group
+│   │   ├── join.tsx                  ← Join group
+│   │   └── [id]/
+│   │       ├── index.tsx             ← Group Dashboard
+│   │       ├── members.tsx           ← Group Members
+│   │       └── alarm/
+│   │           ├── create.tsx        ← Create Alarm
+│   │           ├── sound.tsx         ← Sound Selection
+│   │           └── [alarmId]/
+│   │               ├── index.tsx     ← Alarm Details
+│   │               └── edit.tsx      ← Edit Alarm
+│   ├── settings.tsx
+│   ├── permissions.tsx
+│   ├── offline.tsx
+│   ├── notifications.tsx
+│   ├── help.tsx
+│   └── payment/
+│       └── success.tsx
+│
+├── components/                       ← Reusable UI components
+│   ├── ui/                           ← Base design system components
+│   │   ├── Button.tsx                ← Primary, Secondary, Danger, Text variants
+│   │   ├── Card.tsx                  ← White card with shadow and 20px radius
+│   │   ├── Input.tsx                 ← Text input with label, error state
+│   │   ├── Badge.tsx                 ← Status badge (completed/pending/missed)
+│   │   ├── BottomSheet.tsx           ← Bottom sheet modal with handle
+│   │   ├── SkeletonLoader.tsx        ← Shimmer loading placeholder
+│   │   ├── EmptyState.tsx            ← Illustrated empty state component
+│   │   └── Avatar.tsx                ← User avatar (photo or initials)
+│   ├── alarm/
+│   │   ├── AlarmCard.tsx             ← Alarm in list (title, time, difficulty, status)
+│   │   ├── CountdownTimer.tsx        ← HH:MM:SS live countdown
+│   │   └── MathChallenge.tsx         ← Problem display + numeric keypad + submit
+│   └── group/
+│       ├── GroupCard.tsx             ← Group in list (name, member count, next alarm)
+│       ├── MemberCard.tsx            ← Member status card (name, score, streak, status)
+│       └── StatsBar.tsx              ← Group completion rate bar
+│
+├── lib/                              ← Core utilities and service connections
+│   ├── supabase.ts                   ← Supabase client (createClient with anon key)
+│   ├── revenuecat.ts                 ← RC initialization, purchase helpers, hooks
+│   ├── fcm.ts                        ← FCM token fetch, background handler, notification setup
+│   ├── alarmManager.ts               ← AlarmManager native bridge (scheduleAlarm, cancelAlarm)
+│   └── sqlite.ts                     ← SQLite operations for local_alarms table
+│
+├── store/                            ← Zustand state stores
+│   ├── authStore.ts                  ← user, session, entitlements, plan_type, trial status
+│   ├── groupStore.ts                 ← groups list, selected group, members, realtime sub
+│   └── alarmStore.ts                 ← alarms list, completions, alarmStore state
+│
+├── hooks/                            ← Custom React hooks
+│   ├── useAlarms.ts                  ← Fetch and subscribe to alarms for a group
+│   ├── useMembers.ts                 ← Fetch members for a group
+│   └── useNotifications.ts          ← Fetch and mark notifications
+│
+├── constants/
+│   └── theme.ts                      ← All design tokens (colors, typography, spacing)
+│
+├── android/                          ← Native Android project
+│   └── app/
+│       └── src/
+│           └── main/
+│               ├── AndroidManifest.xml
+│               └── java/com/yourpackage/
+│                   ├── BootReceiver.java
+│                   └── AlarmReceiver.java
+│
+└── assets/
+    ├── fonts/                        ← Poppins font files (all weights)
+    ├── images/                       ← App icon, splash, onboarding illustrations
+    └── sounds/                       ← Preset alarm sounds (min 5 MP3 files)
+
+
+================================================================================
+SECTION 10: iOS PLAN (POST v1.0 — 3+ MONTHS AFTER ANDROID LAUNCH)
+================================================================================
+
+iOS is OUT OF SCOPE for v1.0. Do NOT build any iOS-specific code during v1.0
+development. However, the codebase should be structured so that iOS can be added
+without major refactoring.
+
+iOS-specific code to add when iOS development begins:
+
+ALARM SCHEDULING (replace AlarmManager):
+  Use expo-notifications with UNUserNotificationCenter
+  UNUserNotificationCenter schedules notifications that ring at exact times
+  Note: iOS restricts background execution more than Android — alarm reliability
+  on iOS is slightly less guaranteed than Android
+
+BOOT RESTORE (replace BootReceiver):
+  Use BGTaskScheduler or background fetch
+  iOS apps are launched in background for scheduled tasks differently than Android
+
+KEYBOARD AVOIDANCE:
+  Change KeyboardAvoidingView behavior from "height" (Android) to "padding" (iOS)
+  Wrap in Platform.select for cross-platform code:
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+
+SAFE AREA:
+  react-native-safe-area-context is already a peer dependency of Expo Router
+  Use SafeAreaView and useSafeAreaInsets() for Dynamic Island and notch handling
+
+PAYMENTS:
+  RevenueCat SDK supports Apple IAP with the same API calls
+  Create wakeit_member_annual and wakeit_admin_annual products in App Store Connect
+  RevenueCat handles the Apple receipt validation — no server changes needed
+
+PRICING:
+  Apple charges 30% commission (15% after 1 year for small businesses)
+  vs Google Play 15% after year 1
+  Review pricing when iOS launch approaches — no decision locked in now
+
+BACKGROUND AUDIO:
+  Add UIBackgroundModes with 'audio' to Info.plist
+  This allows alarm sound to continue when app goes to background
+
+STORE REGISTRATION:
+  Apple Developer Program costs $99/year
+  Register 1-2 months before planned iOS launch
+  Use Expo EAS Build to build .ipa without needing a Mac
+
+
+================================================================================
+SECTION 11: PRODUCTION READINESS & DEPLOYMENT
+================================================================================
+
+--------------------------------------------------------------------------------
+11.1 PRE-BUILD CHECKLIST
+--------------------------------------------------------------------------------
+
+Complete ALL of these before writing any app code:
+
+☐ Supabase project created (supabase.com)
+☐ All 8 database tables created with correct schema
+☐ RLS policies applied to all tables
+☐ Supabase Storage 'audio' bucket created (set to public read access)
+☐ Database trigger created: on auth.users INSERT → create public.users row
+☐ All 7 Edge Functions deployed to Supabase
+☐ Each Edge Function tested via Supabase dashboard API tester
+☐ Firebase project created (console.firebase.google.com)
+☐ FCM v1 API enabled in Firebase project
+☐ Firebase service account JSON downloaded
+☐ Service account JSON stored as Supabase Edge Function secret (not hardcoded)
+☐ google-services.json downloaded from Firebase → placed in /android/app/
+☐ RevenueCat project created (app.revenuecat.com)
+☐ 2 products configured in Google Play Console:
+    wakeit_member_annual (Rs249/year)
+    wakeit_admin_annual (Rs1,249/year)
+☐ Products are LIVE in Google Play Console (required before RC can validate)
+☐ RevenueCat entitlements configured: wakeit_member, wakeit_admin
+☐ RevenueCat webhook URL configured → Supabase Edge Function URL
+☐ Android signing keystore generated (store securely, NEVER commit to git)
+☐ applicationId set in android/app/build.gradle
+    (e.g., com.yourname.wakeit — CANNOT change after first Play Store upload)
+☐ versionCode = 1, versionName = "1.0.0" set in build.gradle
+
+--------------------------------------------------------------------------------
+11.2 BUILD CONFIGURATION
+--------------------------------------------------------------------------------
+
+android/app/build.gradle must have:
+  android {
+    defaultConfig {
+      applicationId "com.yourname.wakeit"
+      minSdkVersion 26
+      targetSdkVersion 34
+      versionCode 1
+      versionName "1.0.0"
+    }
+  }
+
+Important: Never commit signing keystore or service account JSON to git.
+Store these as environment variables or use EAS Secrets if building with EAS.
+
+--------------------------------------------------------------------------------
+11.3 CRITICAL TEST FLOWS
+--------------------------------------------------------------------------------
+
+These 12 tests MUST pass on a real physical Android device before submission.
+DO NOT use an emulator — emulators cannot simulate AlarmManager Doze behavior,
+actual FCM delivery, or device reboots accurately.
+
+TEST 1: Alarm rings with app force-killed
+  Setup: Create alarm 2 minutes in future. Force-kill app (recent apps → swipe away).
+  Wait for alarm time.
+  Expected: Alarm rings at exact time. Full-screen opens over lock screen.
+
+TEST 2: Alarm rings with no internet
+  Setup: Create alarm 2 minutes in future. Turn on airplane mode. Wait.
+  Expected: Alarm rings from local AlarmManager/SQLite. No internet required.
+
+TEST 3: Alarm restores after device reboot
+  Setup: Create alarm 30 minutes in future. Reboot device. Wait 60 seconds.
+  Then wait for alarm time.
+  Expected: Alarm rings. BootReceiver rescheduled it within 60 seconds of boot.
+
+TEST 4: Wrong math answer
+  Setup: Let alarm ring and open challenge screen. Enter wrong answer.
+  Expected: Red feedback, challenge resets with NEW problem, alarm keeps ringing.
+
+TEST 5: Correct math answer
+  Setup: Let alarm ring, solve challenge correctly.
+  Expected: Sound stops immediately. Vibration stops. Challenge Success screen.
+  Supabase alarm_completions row updated to 'completed'.
+
+TEST 6: Challenge timeout (5 minutes)
+  Setup: Let alarm ring, DO NOT solve the challenge. Wait 5 minutes.
+  Expected: Alarm stops. Alarm Missed screen shows. Supabase record = 'missed'.
+
+TEST 7: Admin cancels alarm
+  Setup: Admin creates alarm, waits for FCM sync. Then Admin cancels alarm.
+  Expected: FCM cancel push arrives on member devices. AlarmManager entry
+  cancelled. local_alarms row updated/deleted.
+
+TEST 8: Admin removes member
+  Setup: Admin removes a member from a group.
+  Expected: Removed member's app cancels all AlarmManager alarms for that group.
+  Removes group from member's Groups List.
+
+TEST 9: Trial expiry
+  Setup: Manually set trial_ends_at to a past time in Supabase for a test user.
+  Expected: User cannot create groups or alarms. Can still receive alarms from
+  groups they were already in.
+
+TEST 10: RevenueCat purchase
+  Setup: Use a Google Play test account to purchase a plan.
+  Expected: RC webhook fires, Supabase plan_type updates, app entitlements update
+  within 60 seconds.
+
+TEST 11: Multiple groups
+  Setup: Create 3 groups with different alarm times. Join all 3.
+  Expected: All 3 alarms schedule correctly. Each rings at its own time. No
+  conflicts between groups.
+
+TEST 12: Recurring alarm
+  Setup: Create recurring alarm for Mon/Wed/Fri. Let it ring on first occurrence.
+  Expected: Alarm rings. After completion, next occurrence is auto-scheduled.
+  Alarm does not ring after recurrence_end_date.
+
+--------------------------------------------------------------------------------
+11.4 BUILD COMMANDS
+--------------------------------------------------------------------------------
+
+Debug APK (for internal testing — can be installed without Play Store):
+  cd android && ./gradlew assembleDebug
+  Output: android/app/build/outputs/apk/debug/app-debug.apk
+
+Release AAB (required format for Google Play Store upload):
+  cd android && ./gradlew bundleRelease
+  Output: android/app/build/outputs/bundle/release/app-release.aab
+
+Release APK (for direct distribution / sideloading):
+  cd android && ./gradlew assembleRelease
+  Output: android/app/build/outputs/apk/release/app-release.apk
+
+EAS Cloud Build (recommended — handles signing automatically):
+  eas build --platform android --profile production
+
+--------------------------------------------------------------------------------
+11.5 GOOGLE PLAY STORE SUBMISSION CHECKLIST
+--------------------------------------------------------------------------------
+
+☐ App listing complete:
+    Title (max 50 chars): "WAKEIT - Group Accountability Alarm"
+    Short description (max 80 chars): "Wake up as a team. Math challenge alarm. No snooze. Total accountability."
+    Full description (max 4000 chars): Full marketing description
+    Screenshots: min 2, recommended 8 (various screen sizes)
+    Feature graphic: 1024 × 500 px
+    App icon: 512 × 512 px PNG (no alpha)
+☐ Content rating questionnaire completed (expected: Everyone or Everyone 10+)
+☐ Target audience set to 18+ (subscription billing requires 18+)
+☐ Data safety form completed:
+    Data collected: Email address, Device identifiers, App activity
+    Data shared: No
+    Data encrypted in transit: Yes
+    Users can request data deletion: Yes (via account deletion in settings)
+☐ Privacy policy URL set (must be a live, public URL)
+☐ In-app products configured and ACTIVE in Play Console
+
+RELEASE TRACK ORDER (always follow this order):
+  1. Internal Testing — up to 100 testers by email, instant publish (no review)
+     Use this for the dev team to verify the release build works
+  2. Closed Testing (Alpha) — small invited group, goes through Google review
+     Use this for 10-20 real users who are not on the dev team
+  3. Open Testing (Beta) — public opt-in, goes through Google review
+     Use this to get wider feedback before full launch
+  4. Production — full public release, Google review (typically 1-3 days for new apps)
+     Only release to Production after Beta is stable
+
+--------------------------------------------------------------------------------
+11.6 POST-LAUNCH MONITORING
+--------------------------------------------------------------------------------
+
+DAILY CHECKS (first 2 weeks after launch):
+  ☐ Android Vitals in Play Console: ANR rate and crash rate (target: <0.1%)
+  ☐ Supabase dashboard: active connections, database size, edge function errors
+  ☐ FCM console: message delivery rate, delivery failures
+
+WEEKLY CHECKS:
+  ☐ RevenueCat dashboard: new trials, conversions, churn
+  ☐ Play Store reviews: read and respond to all new reviews
+  ☐ Supabase storage usage: ensure not approaching 1GB limit
+
+ALERT THRESHOLDS:
+  - If crash rate > 0.5%: investigate immediately
+  - If Supabase Edge Function error rate > 1%: investigate alarm delivery
+  - If alarm completion rate drops below 50%: investigate alarm firing reliability
+
+
+================================================================================
+SECTION 12: SUCCESS METRICS
+================================================================================
+
+Metric                        | Target                    | How Measured
+------------------------------|---------------------------|---------------------------
+Alarm delivery rate           | >99% within 30 seconds    | alarm_completions timestamps
+Offline alarm reliability     | 100% fire without internet| Manual test flow #2
+Post-reboot restore           | 100% within 60 seconds    | Manual test flow #3
+Challenge completion rate     | >70% of alarms completed  | alarm_completions table
+Subscription conversion       | >20% trial → paid         | RevenueCat dashboard
+App crash rate                | <0.1% of sessions         | Android Vitals
+Play Store rating             | >4.3 stars                | Play Console
+FCM alarm delivery rate       | >98% of pushes delivered  | FCM console reports
+
+
+================================================================================
+SECTION 13: OUT OF SCOPE FOR v1.0
+================================================================================
+
+The following features are explicitly NOT included in v1.0. Do not build them.
+They can be added in future versions.
+
+Feature                        | Status & Reason
+-------------------------------|--------------------------------------------------
+iOS version                    | Planned for 3+ months post Android launch
+Pre-alarm reminder notification| REMOVED — reduces Supabase cron usage on free tier
+Group leaderboard              | REMOVED — simplified to wake score + streak only
+Monthly performance summary    | REMOVED — simplify for v1.0
+Organisation plan ($7,499/yr)  | REMOVED — 2 paid tiers only for v1.0
+Snooze feature                 | Not in v1.0 by design (defeats the product purpose)
+Social feed or chat            | Not in v1.0
+Third-party calendar sync      | Not in v1.0
+Web dashboard                  | Mobile app only
+SMS notifications              | FCM push only
+Multi-language (Hindi etc.)    | English only in v1.0
+Profile photo upload           | Not in v1.0 (use initials avatar)
+Group admin transfer           | Not in v1.0
+Multiple admins per group      | Not in v1.0 (one admin per group)
+Public groups (no invite code) | Not in v1.0 (all groups are private invite-only)
+In-app chat between members    | Not in v1.0
+
+
+================================================================================
+END OF WAKEIT PRD v3.0
+================================================================================
+
+Document: WAKEIT Product Requirements Document
+Version: 3.0
+Date: June 2026
+Classification: Confidential
+
+This document should be referenced for every build decision. If something is
+not covered in this PRD, ask for clarification before building. Do not make
+assumptions that could conflict with documented behavior.
+
+================================================================================

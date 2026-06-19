@@ -1,98 +1,243 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  Animated,
+  StyleSheet,
+  StatusBar,
+  Dimensions,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
+import { useAuthStore } from '@/store/authStore';
+import { syncOfflineCompletions } from '@/lib/sqlite';
+import { supabase } from '@/lib/supabase';
+import { Colors, Typography, Spacing } from '@/constants/theme';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+const { width } = Dimensions.get('window');
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+export default function Splash() {
+  const router = useRouter();
+  const { session, loading } = useAuthStore();
+
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.6)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const taglineFade = useRef(new Animated.Value(0)).current;
+  const taglineSlide = useRef(new Animated.Value(20)).current;
+
+  useEffect(() => {
+    // Logo entrance
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 5,
+        tension: 60,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      // Tagline fade-in after logo
+      Animated.parallel([
+        Animated.timing(taglineFade, {
+          toValue: 1,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(taglineSlide, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+
+    // Pulse ring animation loop
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.15,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    // Network sync listener
+    const unsubscribeNet = NetInfo.addEventListener((state) => {
+      if (state.isConnected && state.isInternetReachable !== false) {
+        syncOfflineCompletions(supabase);
+      }
+    });
+
+    const checkNavigation = async () => {
+      try {
+        const onboardingCompleted = await AsyncStorage.getItem('@onboarding_completed');
+        await new Promise((resolve) => setTimeout(resolve, 2800));
+        if (onboardingCompleted !== 'true') {
+          router.replace('/onboarding/slide1');
+        } else if (!session) {
+          router.replace('/(auth)/login');
+        } else {
+          router.replace('/(tabs)');
+        }
+      } catch {
+        router.replace('/(auth)/login');
+      }
+    };
+
+    if (!loading) {
+      checkNavigation();
+    }
+
+    return () => { unsubscribeNet(); };
+  }, [session, loading]);
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+      {/* Decorative circles */}
+      <View style={styles.bgCircle1} />
+      <View style={styles.bgCircle2} />
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+      {/* Pulse ring behind logo */}
+      <Animated.View
+        style={[
+          styles.pulseRing,
+          { transform: [{ scale: pulseAnim }] },
+        ]}
+      />
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+      {/* Logo */}
+      <Animated.View
+        style={[
+          styles.logoContainer,
+          { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
+        ]}
+      >
+        <View style={styles.logoCircle}>
+          <Text style={styles.logoIcon}>⏰</Text>
+        </View>
+        <Text style={styles.logoText}>WAKEIT</Text>
+      </Animated.View>
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+      {/* Tagline */}
+      <Animated.View
+        style={[
+          styles.taglineContainer,
+          { opacity: taglineFade, transform: [{ translateY: taglineSlide }] },
+        ]}
+      >
+        <Text style={styles.tagline}>Group Wake-up Accountability</Text>
+        <View style={styles.dots}>
+          <View style={[styles.dot, styles.dotActive]} />
+          <View style={styles.dot} />
+          <View style={styles.dot} />
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: Colors.background,
+    alignItems: 'center',
     justifyContent: 'center',
+  },
+  bgCircle1: {
+    position: 'absolute',
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    backgroundColor: Colors.accent,
+    opacity: 0.25,
+    top: -80,
+    right: -80,
+  },
+  bgCircle2: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: Colors.primary,
+    opacity: 0.1,
+    bottom: -60,
+    left: -60,
+  },
+  pulseRing: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    opacity: 0.3,
+  },
+  logoContainer: {
+    alignItems: 'center',
+  },
+  logoCircle: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 16,
+  },
+  logoIcon: {
+    fontSize: 52,
+  },
+  logoText: {
+    fontFamily: Typography.fonts.regular,
+    fontSize: 40,
+    fontWeight: '700',
+    color: Colors.dark,
+    letterSpacing: 6,
+  },
+  taglineContainer: {
+    position: 'absolute',
+    bottom: 100,
+    alignItems: 'center',
+  },
+  tagline: {
+    fontFamily: Typography.fonts.regular,
+    fontSize: Typography.sizes.body,
+    color: Colors.textSecondary,
+    letterSpacing: 0.5,
+    marginBottom: Spacing.md,
+  },
+  dots: {
     flexDirection: 'row',
+    gap: 6,
   },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.divider,
   },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+  dotActive: {
+    backgroundColor: Colors.primary,
+    width: 18,
   },
 });

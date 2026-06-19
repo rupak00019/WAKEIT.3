@@ -8,6 +8,12 @@
       ],
       "@/assets/*": [
         "./assets/*"
+      ],
+      "@/store/*": [
+        "./store/*"
+      ],
+      "@/lib/*": [
+        "./lib/*"
       ]
     }
   },
@@ -16,5 +22,11 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  "exclude": [
+    "supabase",
+    "node_modules",
+    "scratch",
+    "android"
   ]
 }
