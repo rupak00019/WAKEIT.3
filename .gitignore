@@ -40,3 +40,10 @@ example
 
 # generated native folders
 /ios
+
+# platform tools (large binary files, not needed in repo)
+platform-tools.zip
+platform-tools-extracted/
+
+# scratch files
+scratch/
