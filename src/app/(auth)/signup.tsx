@@ -9,12 +9,15 @@ import {
   StatusBar,
   Animated,
   Dimensions,
+  Image,
+  Pressable,
 } from 'react-native';
 import { useRouter, Link } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import { Colors, Typography, Spacing } from '@/constants/theme';
+import { User, Mail, Lock } from 'lucide-react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -84,36 +87,43 @@ export default function SignUp() {
     >
       <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
 
-      {/* Decorative blobs */}
-      <View style={styles.topBlob} />
-      <View style={styles.topBlobAccent} />
-
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* Background Skyline */}
+        <Image 
+          source={require('../../assets/images/illustrations/skyline.png')}
+          style={styles.skyline}
+          resizeMode="cover"
+        />
+
+        {/* Top Header Section */}
         <Animated.View
           style={[
             styles.header,
             { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
-          <View style={styles.logoMark}>
-            <Text style={styles.logoIcon}>🚀</Text>
+          <View style={styles.logoTextContainer}>
+            <Text style={styles.logoTextDark}>WAKE</Text>
+            <Text style={styles.logoTextPrimary}>IT</Text>
           </View>
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Start waking up with your group</Text>
+          
+          <Text style={styles.tagline}>Wake together. Achieve together.</Text>
         </Animated.View>
 
-        {/* Form card */}
+        {/* Form Section */}
         <Animated.View
           style={[
-            styles.card,
+            styles.formContainer,
             { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
+          <Text style={styles.title}>Create Account</Text>
+          <Text style={styles.subtitle}>Start waking up with your group.</Text>
+
           {error ? (
             <View style={styles.errorBanner}>
               <Text style={styles.errorIcon}>⚠️</Text>
@@ -121,32 +131,42 @@ export default function SignUp() {
             </View>
           ) : null}
 
-          <Input
-            label="Full Name"
-            placeholder="John Doe"
-            autoCapitalize="words"
-            value={fullName}
-            onChangeText={setFullName}
-          />
-          <Input
-            label="Email Address"
-            placeholder="name@example.com"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            value={email}
-            onChangeText={setEmail}
-          />
-          <Input
-            label="Password"
-            placeholder="Create a strong password"
-            secureTextEntry
-            autoCapitalize="none"
-            value={password}
-            onChangeText={setPassword}
-          />
+          <View style={styles.inputGroup}>
+            <Input
+              label="Full Name"
+              placeholder="John Doe"
+              autoCapitalize="words"
+              value={fullName}
+              onChangeText={setFullName}
+              leftIcon={<User size={20} color={Colors.textSecondary} />}
+            />
+          </View>
 
-          {/* Password strength hint */}
+          <View style={styles.inputGroup}>
+            <Input
+              label="Email"
+              placeholder="Enter your email"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={email}
+              onChangeText={setEmail}
+              leftIcon={<Mail size={20} color={Colors.textSecondary} />}
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Input
+              label="Password"
+              placeholder="Create a strong password"
+              secureTextEntry
+              autoCapitalize="none"
+              value={password}
+              onChangeText={setPassword}
+              leftIcon={<Lock size={20} color={Colors.textSecondary} />}
+            />
+          </View>
+
           <Text style={styles.hint}>Use at least 8 characters with letters and numbers</Text>
 
           <Button
@@ -155,13 +175,16 @@ export default function SignUp() {
             loading={loading}
             style={styles.signUpBtn}
           />
+
         </Animated.View>
 
         {/* Footer */}
         <Animated.View style={[styles.footer, { opacity: fadeAnim }]}>
           <Text style={styles.footerText}>Already have an account?</Text>
           <Link href="/(auth)/login" asChild>
-            <Button title="Log In" onPress={() => {}} variant="link" style={styles.linkInline} />
+            <Pressable>
+              <Text style={styles.loginText}>Log in</Text>
+            </Pressable>
           </Link>
         </Animated.View>
 
@@ -182,81 +205,64 @@ export default function SignUp() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.surface,
   },
-  topBlob: {
+  skyline: {
     position: 'absolute',
-    width: width * 1.4,
-    height: 280,
-    borderBottomLeftRadius: width * 0.7,
-    borderBottomRightRadius: width * 0.7,
-    backgroundColor: Colors.primary,
-    opacity: 0.08,
-    top: -80,
-    alignSelf: 'center',
-  },
-  topBlobAccent: {
-    position: 'absolute',
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: Colors.accent,
-    opacity: 0.6,
-    top: -20,
-    left: 20,
+    top: 0,
+    width: width,
+    height: 180,
+    opacity: 0.5,
+    zIndex: 0,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.xl,
-    paddingBottom: 40,
     flexGrow: 1,
-    justifyContent: 'center',
+    paddingBottom: 40,
     paddingTop: 60,
   },
   header: {
     alignItems: 'center',
     marginBottom: Spacing.xl,
+    zIndex: 1,
   },
-  logoMark: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.md,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 10,
+  logoTextContainer: {
+    flexDirection: 'row',
+    marginBottom: Spacing.xs,
   },
-  logoIcon: {
+  logoTextDark: {
+    fontFamily: Typography.fonts.bold,
     fontSize: 32,
+    color: Colors.dark,
+    letterSpacing: 2,
+  },
+  logoTextPrimary: {
+    fontFamily: Typography.fonts.bold,
+    fontSize: 32,
+    color: Colors.primary,
+    letterSpacing: 2,
+  },
+  tagline: {
+    fontFamily: Typography.fonts.regular,
+    fontSize: Typography.sizes.caption,
+    color: Colors.textSecondary,
+  },
+  formContainer: {
+    paddingHorizontal: Spacing.xl,
+    zIndex: 1,
   },
   title: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: Typography.sizes.h1,
-    fontWeight: '700',
+    fontFamily: Typography.fonts.bold,
+    fontSize: 24,
     color: Colors.dark,
-    marginBottom: 4,
+    textAlign: 'center',
+    marginBottom: Spacing.xs,
   },
   subtitle: {
     fontFamily: Typography.fonts.regular,
-    fontSize: Typography.sizes.body,
+    fontSize: Typography.sizes.caption,
     color: Colors.textSecondary,
-  },
-  card: {
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    padding: Spacing.lg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 16,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: Colors.divider,
-    marginBottom: Spacing.lg,
+    textAlign: 'center',
+    marginBottom: Spacing.xl,
   },
   errorBanner: {
     flexDirection: 'row',
@@ -278,35 +284,42 @@ const styles = StyleSheet.create({
     color: Colors.error,
     flex: 1,
   },
+  inputGroup: {
+    marginBottom: Spacing.sm,
+  },
   hint: {
     fontFamily: Typography.fonts.regular,
     fontSize: 11,
     color: Colors.textDisabled,
-    marginTop: -2,
-    marginBottom: Spacing.sm,
+    marginTop: -4,
+    marginBottom: Spacing.lg,
+    marginLeft: 4,
   },
   signUpBtn: {
-    marginTop: Spacing.sm,
+    width: '100%',
+    height: 56,
+    borderRadius: 12,
+    marginBottom: Spacing.xl,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    marginTop: 'auto',
+    marginBottom: Spacing.lg,
   },
   footerText: {
     fontFamily: Typography.fonts.regular,
-    fontSize: Typography.sizes.body,
+    fontSize: Typography.sizes.caption,
     color: Colors.textSecondary,
     marginRight: 4,
   },
-  linkInline: {
-    padding: 0,
-    marginVertical: 0,
-    minHeight: 0,
-    height: 'auto',
+  loginText: {
+    fontFamily: Typography.fonts.medium,
+    fontSize: Typography.sizes.caption,
+    color: Colors.primary,
   },
   termsRow: {
-    marginTop: Spacing.lg,
     paddingHorizontal: Spacing.md,
   },
   termsText: {

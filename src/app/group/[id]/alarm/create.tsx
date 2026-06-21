@@ -10,7 +10,9 @@ import {
   Switch,
   Pressable,
   StatusBar,
+  Modal,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAlarmStore } from '@/store/alarmStore';
@@ -34,30 +36,47 @@ const DIFFICULTIES = [
   { key: 'hard', label: 'Hard', emoji: '🔴', description: 'Multi-step' },
 ] as const;
 
-function getLocalDateString(d: Date) {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const date = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${date}`;
+function formatTimeDisplay(date: Date): string {
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${ampm}`;
 }
 
-function getFirstOccurrence(timeStr: string, recurrenceDays: number[]): Date {
-  const [hours, minutes] = timeStr.split(':').map(Number);
+function formatDateDisplay(date: Date): string {
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function getFirstOccurrenceFromDate(alarmDate: Date, recurrenceDays: number[]): Date {
+  const hours = alarmDate.getHours();
+  const minutes = alarmDate.getMinutes();
   const now = new Date();
-  
-  // Try today and the next 7 days
+
   for (let i = 0; i <= 7; i++) {
     const candidate = new Date();
     candidate.setDate(now.getDate() + i);
     candidate.setHours(hours, minutes, 0, 0);
-    
     if (candidate > now && recurrenceDays.includes(candidate.getDay())) {
       return candidate;
     }
   }
-  
-  // Fallback
   return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+}
+
+// Returns a Date set to tomorrow at the given time
+function getDefaultAlarmDate(): Date {
+  const d = new Date();
+  d.setHours(7, 0, 0, 0);
+  if (d <= new Date()) d.setDate(d.getDate() + 1);
+  return d;
+}
+
+function getDefaultEndDate(): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  d.setHours(23, 59, 59, 0);
+  return d;
 }
 
 export default function CreateAlarm() {
@@ -66,26 +85,32 @@ export default function CreateAlarm() {
   const { createAlarm } = useAlarmStore();
 
   const [title, setTitle] = useState('');
-  const [time, setTime] = useState('07:00');
-  const [dateStr, setDateStr] = useState(getLocalDateString(new Date()));
+  const [alarmDate, setAlarmDate] = useState<Date>(getDefaultAlarmDate());
+  const [endDate, setEndDate] = useState<Date>(getDefaultEndDate());
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('easy');
   const [soundUrl, setSoundUrl] = useState('radar.mp3');
+  const [soundLabel, setSoundLabel] = useState('Radar Sirens');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
-  
-  // Default end date to 7 days from now
-  const defaultEndDate = new Date();
-  defaultEndDate.setDate(defaultEndDate.getDate() + 7);
-  const [endDate, setEndDate] = useState(getLocalDateString(defaultEndDate));
   const [saving, setSaving] = useState(false);
+
+  // Picker visibility
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
   // Load sound if changed on the sound screen
   useFocusEffect(
     React.useCallback(() => {
       const loadSound = async () => {
         const storedSound = await AsyncStorage.getItem('@selected_alarm_sound');
-        if (storedSound) {
-          setSoundUrl(storedSound);
+        const storedMeta = await AsyncStorage.getItem('@selected_alarm_sound_meta');
+        if (storedSound) setSoundUrl(storedSound);
+        if (storedMeta) {
+          try {
+            const meta = JSON.parse(storedMeta);
+            setSoundLabel(meta.name || storedSound || 'Radar Sirens');
+          } catch {}
         }
       };
       loadSound();
@@ -93,13 +118,40 @@ export default function CreateAlarm() {
   );
 
   const toggleDay = (dayValue: number) => {
-    if (recurrenceDays.includes(dayValue)) {
-      setRecurrenceDays(recurrenceDays.filter((d) => d !== dayValue));
-    } else {
-      setRecurrenceDays([...recurrenceDays, dayValue]);
+    setRecurrenceDays((prev) =>
+      prev.includes(dayValue) ? prev.filter((d) => d !== dayValue) : [...prev, dayValue]
+    );
+  };
+
+  // ---- Picker handlers ----
+  const onTimeChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setShowTimePicker(false);
+    if (selected) {
+      setAlarmDate((prev) => {
+        const updated = new Date(prev);
+        updated.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+        return updated;
+      });
     }
   };
 
+  const onDateChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (selected) {
+      setAlarmDate((prev) => {
+        const updated = new Date(prev);
+        updated.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+        return updated;
+      });
+    }
+  };
+
+  const onEndDateChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setShowEndDatePicker(false);
+    if (selected) setEndDate(selected);
+  };
+
+  // ---- Save ----
   const handleSave = async () => {
     if (!id) return;
     if (!title.trim()) {
@@ -110,10 +162,9 @@ export default function CreateAlarm() {
       Alert.alert('Title Too Long', 'Alarm title must be 50 characters or less.');
       return;
     }
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
-      Alert.alert('Invalid Time', 'Please enter time in HH:MM format (24-hour style, e.g. 07:30).');
-      return;
-    }
+
+    const now = new Date();
+    const minFuture = new Date(now.getTime() + 2 * 60 * 1000);
 
     let finalAlarmTimeUtc = '';
 
@@ -122,67 +173,24 @@ export default function CreateAlarm() {
         Alert.alert('Selection Error', 'Please select at least one repeat day.');
         return;
       }
-      if (!endDate) {
-        Alert.alert('Missing End Date', 'Please enter a recurrence end date.');
-        return;
-      }
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-        Alert.alert('Invalid Date Format', 'End date must be in YYYY-MM-DD format.');
-        return;
-      }
-      
-      const now = new Date();
-      const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
-      const endDateTime = new Date(endYear, endMonth - 1, endDay, 23, 59, 59);
-      
-      if (isNaN(endDateTime.getTime())) {
-        Alert.alert('Invalid Date', 'Please enter a valid end date.');
-        return;
-      }
-
-      if (endDateTime < now) {
+      const maxEndDate = new Date();
+      maxEndDate.setDate(maxEndDate.getDate() + 30);
+      if (endDate < now) {
         Alert.alert('Invalid End Date', 'Recurrence end date must be in the future.');
         return;
       }
-
-      const maxEndDate = new Date();
-      maxEndDate.setDate(maxEndDate.getDate() + 30);
-      if (endDateTime > maxEndDate) {
-        Alert.alert('Limit Exceeded', 'Recurrence end date cannot be more than 30 days in the future.');
+      if (endDate > maxEndDate) {
+        Alert.alert('Limit Exceeded', 'Recurrence end date cannot be more than 30 days away.');
         return;
       }
-
-      // Calculate first occurrence to set alarm_time
-      const firstOccur = getFirstOccurrence(time, recurrenceDays);
+      const firstOccur = getFirstOccurrenceFromDate(alarmDate, recurrenceDays);
       finalAlarmTimeUtc = firstOccur.toISOString();
     } else {
-      // One-time alarm
-      if (!dateStr) {
-        Alert.alert('Missing Date', 'Please enter a date.');
+      if (alarmDate < minFuture) {
+        Alert.alert('Invalid Time', 'Alarm must be at least 2 minutes in the future.');
         return;
       }
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-        Alert.alert('Invalid Date Format', 'Date must be in YYYY-MM-DD format.');
-        return;
-      }
-      
-      const [year, month, day] = dateStr.split('-').map(Number);
-      const [hours, minutes] = time.split(':').map(Number);
-      const alarmTimeDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
-
-      if (isNaN(alarmTimeDate.getTime())) {
-        Alert.alert('Invalid Date', 'Please enter a valid date.');
-        return;
-      }
-
-      const now = new Date();
-      const minFuture = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes future
-      if (alarmTimeDate < minFuture) {
-        Alert.alert('Invalid Date/Time', 'Alarm time must be at least 2 minutes in the future.');
-        return;
-      }
-
-      finalAlarmTimeUtc = alarmTimeDate.toISOString();
+      finalAlarmTimeUtc = alarmDate.toISOString();
     }
 
     setSaving(true);
@@ -195,7 +203,9 @@ export default function CreateAlarm() {
         sound_url: soundUrl,
         is_recurring: isRecurring,
         recurrence_days: isRecurring ? recurrenceDays : undefined,
-        recurrence_end_date: isRecurring ? endDate : undefined,
+        recurrence_end_date: isRecurring
+          ? `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
+          : undefined,
       });
 
       if (res.success) {
@@ -212,12 +222,113 @@ export default function CreateAlarm() {
     }
   };
 
+  // ---- iOS picker wrapper (shown in a modal) ----
+  const IOSPickerModal = ({
+    visible,
+    mode,
+    value,
+    minimumDate,
+    maximumDate,
+    onChange,
+    onDone,
+  }: {
+    visible: boolean;
+    mode: 'date' | 'time';
+    value: Date;
+    minimumDate?: Date;
+    maximumDate?: Date;
+    onChange: (e: DateTimePickerEvent, d?: Date) => void;
+    onDone: () => void;
+  }) => (
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={onDone}>
+              <Text style={styles.modalDoneBtn}>Done</Text>
+            </Pressable>
+          </View>
+          <DateTimePicker
+            value={value}
+            mode={mode}
+            display="spinner"
+            onChange={onChange}
+            minimumDate={minimumDate}
+            maximumDate={maximumDate}
+            style={styles.iosPicker}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
+
+      {/* Android pickers — render inline when visible */}
+      {Platform.OS === 'android' && showTimePicker && (
+        <DateTimePicker
+          value={alarmDate}
+          mode="time"
+          is24Hour={false}
+          display="default"
+          onChange={onTimeChange}
+        />
+      )}
+      {Platform.OS === 'android' && showDatePicker && (
+        <DateTimePicker
+          value={alarmDate}
+          mode="date"
+          display="default"
+          minimumDate={new Date()}
+          onChange={onDateChange}
+        />
+      )}
+      {Platform.OS === 'android' && showEndDatePicker && (
+        <DateTimePicker
+          value={endDate}
+          mode="date"
+          display="default"
+          minimumDate={new Date()}
+          maximumDate={(() => { const m = new Date(); m.setDate(m.getDate() + 30); return m; })()}
+          onChange={onEndDateChange}
+        />
+      )}
+
+      {/* iOS pickers — modal sheet */}
+      {Platform.OS === 'ios' && (
+        <>
+          <IOSPickerModal
+            visible={showTimePicker}
+            mode="time"
+            value={alarmDate}
+            onChange={onTimeChange}
+            onDone={() => setShowTimePicker(false)}
+          />
+          <IOSPickerModal
+            visible={showDatePicker}
+            mode="date"
+            value={alarmDate}
+            minimumDate={new Date()}
+            onChange={onDateChange}
+            onDone={() => setShowDatePicker(false)}
+          />
+          <IOSPickerModal
+            visible={showEndDatePicker}
+            mode="date"
+            value={endDate}
+            minimumDate={new Date()}
+            maximumDate={(() => { const m = new Date(); m.setDate(m.getDate() + 30); return m; })()}
+            onChange={onEndDateChange}
+            onDone={() => setShowEndDatePicker(false)}
+          />
+        </>
+      )}
+
       <ScrollView
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
@@ -237,23 +348,35 @@ export default function CreateAlarm() {
             value={title}
             onChangeText={setTitle}
           />
-          <Input
-            label="Time (24h format, HH:MM)"
-            placeholder="e.g. 07:30"
-            value={time}
-            onChangeText={setTime}
-            maxLength={5}
-            keyboardType="numbers-and-punctuation"
-          />
+
+          {/* Time picker row */}
+          <View style={styles.pickerFieldGroup}>
+            <Text style={styles.pickerFieldLabel}>Alarm Time</Text>
+            <Pressable
+              style={styles.pickerRow}
+              onPress={() => setShowTimePicker(true)}
+              android_ripple={{ color: Colors.accent }}
+            >
+              <Text style={styles.pickerIcon}>🕐</Text>
+              <Text style={styles.pickerValue}>{formatTimeDisplay(alarmDate)}</Text>
+              <Text style={styles.pickerChevron}>›</Text>
+            </Pressable>
+          </View>
+
+          {/* Date picker row — only for one-time alarms */}
           {!isRecurring && (
-            <Input
-              label="Date (YYYY-MM-DD)"
-              placeholder="e.g. 2026-06-18"
-              value={dateStr}
-              onChangeText={setDateStr}
-              maxLength={10}
-              keyboardType="numbers-and-punctuation"
-            />
+            <View style={styles.pickerFieldGroup}>
+              <Text style={styles.pickerFieldLabel}>Date</Text>
+              <Pressable
+                style={styles.pickerRow}
+                onPress={() => setShowDatePicker(true)}
+                android_ripple={{ color: Colors.accent }}
+              >
+                <Text style={styles.pickerIcon}>📅</Text>
+                <Text style={styles.pickerValue}>{formatDateDisplay(alarmDate)}</Text>
+                <Text style={styles.pickerChevron}>›</Text>
+              </Pressable>
+            </View>
           )}
         </View>
 
@@ -290,8 +413,8 @@ export default function CreateAlarm() {
               <Text style={styles.soundIcon}>🎵</Text>
             </View>
             <View style={styles.soundInfo}>
-              <Text style={styles.soundName}>{soundUrl}</Text>
-              <Text style={styles.soundDesc}>Tap to change preset</Text>
+              <Text style={styles.soundName} numberOfLines={1}>{soundLabel}</Text>
+              <Text style={styles.soundDesc}>Tap to change</Text>
             </View>
             <Button
               title="Change"
@@ -337,19 +460,22 @@ export default function CreateAlarm() {
                 })}
               </View>
 
-              <Input
-                label="End Date (Optional, max 30 days, YYYY-MM-DD)"
-                placeholder="e.g. 2026-07-15"
-                value={endDate}
-                onChangeText={setEndDate}
-                maxLength={10}
-                keyboardType="numbers-and-punctuation"
-              />
+              {/* End date picker row */}
+              <Text style={styles.fieldLabel}>End Date (max 30 days)</Text>
+              <Pressable
+                style={styles.pickerRow}
+                onPress={() => setShowEndDatePicker(true)}
+                android_ripple={{ color: Colors.accent }}
+              >
+                <Text style={styles.pickerIcon}>📅</Text>
+                <Text style={styles.pickerValue}>{formatDateDisplay(endDate)}</Text>
+                <Text style={styles.pickerChevron}>›</Text>
+              </Pressable>
             </View>
           )}
         </View>
 
-        {/* Action buttons */}
+        {/* Actions */}
         <Button title="Schedule Alarm" onPress={handleSave} loading={saving} style={styles.saveBtn} />
         <Button title="Cancel" onPress={() => router.back()} variant="link" style={styles.cancelBtn} />
       </ScrollView>
@@ -395,6 +521,73 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  // Picker field
+  pickerFieldGroup: {
+    marginTop: Spacing.sm,
+  },
+  pickerFieldLabel: {
+    fontFamily: Typography.fonts.regular,
+    fontSize: Typography.sizes.caption,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: Colors.divider,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 14,
+    gap: 10,
+  },
+  pickerIcon: {
+    fontSize: 20,
+  },
+  pickerValue: {
+    flex: 1,
+    fontFamily: Typography.fonts.semibold,
+    fontSize: Typography.sizes.bodyLarge,
+    color: Colors.dark,
+  },
+  pickerChevron: {
+    fontSize: 22,
+    color: Colors.textSecondary,
+  },
+  // iOS modal picker
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  modalSheet: {
+    backgroundColor: Colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 30,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: Spacing.md,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.divider,
+  },
+  modalDoneBtn: {
+    fontFamily: Typography.fonts.bold,
+    fontSize: Typography.sizes.body,
+    color: Colors.primary,
+  },
+  iosPicker: {
+    backgroundColor: Colors.surface,
+  },
+  // Section
   section: {
     backgroundColor: Colors.surface,
     borderRadius: 18,
@@ -410,6 +603,7 @@ const styles = StyleSheet.create({
     color: Colors.dark,
     marginBottom: 4,
   },
+  // Difficulty
   diffRow: {
     flexDirection: 'row',
     gap: 8,
@@ -438,9 +632,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textSecondary,
   },
-  diffLabelSelected: {
-    color: Colors.dark,
-  },
+  diffLabelSelected: { color: Colors.dark },
   diffDesc: {
     fontFamily: Typography.fonts.regular,
     fontSize: 10,
@@ -448,9 +640,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
   },
-  diffDescSelected: {
-    color: Colors.textSecondary,
-  },
+  diffDescSelected: { color: Colors.textSecondary },
+  // Sound
   soundRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -465,12 +656,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  soundIcon: {
-    fontSize: 22,
-  },
-  soundInfo: {
-    flex: 1,
-  },
+  soundIcon: { fontSize: 22 },
+  soundInfo: { flex: 1 },
   soundName: {
     fontFamily: Typography.fonts.regular,
     fontSize: 13,
@@ -487,6 +674,7 @@ const styles = StyleSheet.create({
     height: 36,
     marginVertical: 0,
   },
+  // Recurrence
   recurrenceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -535,12 +723,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textSecondary,
   },
-  dayTextSelected: {
-    color: Colors.surface,
-  },
-  saveBtn: {
-    marginTop: Spacing.md,
-  },
+  dayTextSelected: { color: Colors.surface },
+  saveBtn: { marginTop: Spacing.md },
   cancelBtn: {
     alignSelf: 'center',
     marginTop: Spacing.sm,

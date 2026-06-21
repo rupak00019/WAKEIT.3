@@ -55,7 +55,8 @@
       "expo-sqlite",
       "expo-status-bar",
       "expo-web-browser",
-      "@react-native-firebase/app"
+      "@react-native-firebase/app",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -6,6 +6,7 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -24,7 +25,6 @@ export default function Splash() {
   // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.6)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
   const taglineFade = useRef(new Animated.Value(0)).current;
   const taglineSlide = useRef(new Animated.Value(20)).current;
 
@@ -57,22 +57,6 @@ export default function Splash() {
         }),
       ]).start();
     });
-
-    // Pulse ring animation loop
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.15,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
 
     // Network sync listener
     const unsubscribeNet = NetInfo.addEventListener((state) => {
@@ -108,29 +92,29 @@ export default function Splash() {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
 
-      {/* Decorative circles */}
+      {/* Decorative concentric circles behind illustration */}
       <View style={styles.bgCircle1} />
       <View style={styles.bgCircle2} />
+      <View style={styles.bgCircle3} />
 
-      {/* Pulse ring behind logo */}
-      <Animated.View
-        style={[
-          styles.pulseRing,
-          { transform: [{ scale: pulseAnim }] },
-        ]}
-      />
-
-      {/* Logo */}
+      {/* Main Illustration */}
       <Animated.View
         style={[
           styles.logoContainer,
           { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
         ]}
       >
-        <View style={styles.logoCircle}>
-          <Text style={styles.logoIcon}>⏰</Text>
+        <Image 
+          source={require('../../assets/images/illustrations/alarm.png')} 
+          style={styles.illustration}
+          resizeMode="contain"
+        />
+        
+        {/* WAKEIT Logo */}
+        <View style={styles.logoTextContainer}>
+          <Text style={styles.logoTextDark}>WAKE</Text>
+          <Text style={styles.logoTextPrimary}>IT</Text>
         </View>
-        <Text style={styles.logoText}>WAKEIT</Text>
       </Animated.View>
 
       {/* Tagline */}
@@ -140,13 +124,15 @@ export default function Splash() {
           { opacity: taglineFade, transform: [{ translateY: taglineSlide }] },
         ]}
       >
-        <Text style={styles.tagline}>Group Wake-up Accountability</Text>
-        <View style={styles.dots}>
-          <View style={[styles.dot, styles.dotActive]} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-        </View>
+        <Text style={styles.tagline}>Wake together. Achieve together.</Text>
       </Animated.View>
+
+      {/* Skyline Background */}
+      <Image 
+        source={require('../../assets/images/illustrations/skyline.png')} 
+        style={styles.skyline}
+        resizeMode="cover"
+      />
     </View>
   );
 }
@@ -160,84 +146,69 @@ const styles = StyleSheet.create({
   },
   bgCircle1: {
     position: 'absolute',
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: Colors.accent,
-    opacity: 0.25,
-    top: -80,
-    right: -80,
+    width: width * 1.2,
+    height: width * 1.2,
+    borderRadius: width * 0.6,
+    backgroundColor: 'rgba(217, 232, 254, 0.1)', // Very faint accent
+    top: '10%',
   },
   bgCircle2: {
     position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: Colors.primary,
-    opacity: 0.1,
-    bottom: -60,
-    left: -60,
+    width: width * 0.8,
+    height: width * 0.8,
+    borderRadius: width * 0.4,
+    backgroundColor: 'rgba(217, 232, 254, 0.2)',
+    top: '20%',
   },
-  pulseRing: {
+  bgCircle3: {
     position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    borderWidth: 2,
-    borderColor: Colors.primary,
-    opacity: 0.3,
+    width: width * 0.5,
+    height: width * 0.5,
+    borderRadius: width * 0.25,
+    backgroundColor: 'rgba(217, 232, 254, 0.3)',
+    top: '28%',
   },
   logoContainer: {
     alignItems: 'center',
+    zIndex: 10,
+    marginTop: -50,
   },
-  logoCircle: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.lg,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 16,
+  illustration: {
+    width: 200,
+    height: 200,
+    marginBottom: Spacing.xl,
   },
-  logoIcon: {
-    fontSize: 52,
+  logoTextContainer: {
+    flexDirection: 'row',
   },
-  logoText: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: 40,
-    fontWeight: '700',
+  logoTextDark: {
+    fontFamily: Typography.fonts.bold,
+    fontSize: 48,
     color: Colors.dark,
-    letterSpacing: 6,
+    letterSpacing: 4,
+  },
+  logoTextPrimary: {
+    fontFamily: Typography.fonts.bold,
+    fontSize: 48,
+    color: Colors.primary,
+    letterSpacing: 4,
   },
   taglineContainer: {
     position: 'absolute',
-    bottom: 100,
+    top: '65%',
     alignItems: 'center',
+    zIndex: 10,
   },
   tagline: {
     fontFamily: Typography.fonts.regular,
-    fontSize: Typography.sizes.body,
+    fontSize: Typography.sizes.bodyLarge,
     color: Colors.textSecondary,
-    letterSpacing: 0.5,
-    marginBottom: Spacing.md,
   },
-  dots: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.divider,
-  },
-  dotActive: {
-    backgroundColor: Colors.primary,
-    width: 18,
+  skyline: {
+    position: 'absolute',
+    bottom: 0,
+    width: width,
+    height: 150,
+    opacity: 0.6,
   },
 });

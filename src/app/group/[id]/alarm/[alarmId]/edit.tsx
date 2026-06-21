@@ -10,14 +10,15 @@ import {
   Switch,
   Pressable,
   StatusBar,
+  Modal,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAlarmStore } from '@/store/alarmStore';
 import { supabase } from '@/lib/supabase';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
-import Card from '@/components/ui/Card';
 import { Colors, Typography, Spacing } from '@/constants/theme';
 
 const DAYS_OF_WEEK = [
@@ -36,29 +37,35 @@ const DIFFICULTIES = [
   { key: 'hard', label: 'Hard', emoji: '🔴', description: 'Multi-step' },
 ] as const;
 
-function getLocalDateString(d: Date) {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const date = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${date}`;
+function formatTimeDisplay(date: Date): string {
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${ampm}`;
 }
 
-function getFirstOccurrence(timeStr: string, recurrenceDays: number[]): Date {
-  const [hours, minutes] = timeStr.split(':').map(Number);
+function formatDateDisplay(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function getFirstOccurrenceFromDate(alarmDate: Date, recurrenceDays: number[]): Date {
+  const hours = alarmDate.getHours();
+  const minutes = alarmDate.getMinutes();
   const now = new Date();
-  
-  // Try today and the next 7 days
   for (let i = 0; i <= 7; i++) {
     const candidate = new Date();
     candidate.setDate(now.getDate() + i);
     candidate.setHours(hours, minutes, 0, 0);
-    
     if (candidate > now && recurrenceDays.includes(candidate.getDay())) {
       return candidate;
     }
   }
-  
-  // Fallback
   return new Date(now.getTime() + 24 * 60 * 60 * 1000);
 }
 
@@ -68,16 +75,26 @@ export default function EditAlarm() {
   const { updateAlarm } = useAlarmStore();
 
   const [title, setTitle] = useState('');
-  const [time, setTime] = useState('07:00');
-  const [dateStr, setDateStr] = useState(getLocalDateString(new Date()));
+  const [alarmDate, setAlarmDate] = useState<Date>(new Date());
+  const [endDate, setEndDate] = useState<Date>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    return d;
+  });
   const [difficulty, setDifficulty] = useState<'easy' | 'medium' | 'hard'>('easy');
   const [soundUrl, setSoundUrl] = useState('radar.mp3');
+  const [soundLabel, setSoundLabel] = useState('Radar Sirens');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
-  const [endDate, setEndDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Picker visibility
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+
+  // Load alarm details from Supabase
   useEffect(() => {
     const fetchAlarmDetails = async () => {
       if (!alarmId) return;
@@ -90,7 +107,6 @@ export default function EditAlarm() {
 
         if (error) throw error;
         if (data) {
-          // Verify if alarm is within 1 minute of triggering
           const alarmTime = new Date(data.alarm_time);
           if (alarmTime.getTime() - Date.now() < 60000) {
             Alert.alert(
@@ -104,17 +120,15 @@ export default function EditAlarm() {
           setTitle(data.title);
           setDifficulty(data.difficulty);
           setSoundUrl(data.sound_url || 'radar.mp3');
+          setSoundLabel(data.sound_url || 'Radar Sirens');
           setIsRecurring(data.is_recurring);
           setRecurrenceDays(data.recurrence_days || []);
-          setEndDate(data.recurrence_end_date || '');
+          setAlarmDate(alarmTime);
 
-          // Convert alarm_time ISO UTC string to local HH:MM and YYYY-MM-DD
-          const localDateObj = new Date(data.alarm_time);
-          const hours = String(localDateObj.getHours()).padStart(2, '0');
-          const minutes = String(localDateObj.getMinutes()).padStart(2, '0');
-          setTime(`${hours}:${minutes}`);
-
-          setDateStr(getLocalDateString(localDateObj));
+          if (data.recurrence_end_date) {
+            const [y, m, d] = data.recurrence_end_date.split('-').map(Number);
+            setEndDate(new Date(y, m - 1, d, 23, 59, 59));
+          }
         }
       } catch (err: any) {
         Alert.alert('Error', 'Failed to retrieve alarm settings: ' + err.message);
@@ -131,8 +145,13 @@ export default function EditAlarm() {
     React.useCallback(() => {
       const loadSound = async () => {
         const storedSound = await AsyncStorage.getItem('@selected_alarm_sound');
-        if (storedSound) {
-          setSoundUrl(storedSound);
+        const storedMeta = await AsyncStorage.getItem('@selected_alarm_sound_meta');
+        if (storedSound) setSoundUrl(storedSound);
+        if (storedMeta) {
+          try {
+            const meta = JSON.parse(storedMeta);
+            setSoundLabel(meta.name || storedSound || 'Radar Sirens');
+          } catch {}
         }
       };
       loadSound();
@@ -140,13 +159,40 @@ export default function EditAlarm() {
   );
 
   const toggleDay = (dayValue: number) => {
-    if (recurrenceDays.includes(dayValue)) {
-      setRecurrenceDays(recurrenceDays.filter((d) => d !== dayValue));
-    } else {
-      setRecurrenceDays([...recurrenceDays, dayValue]);
+    setRecurrenceDays((prev) =>
+      prev.includes(dayValue) ? prev.filter((d) => d !== dayValue) : [...prev, dayValue]
+    );
+  };
+
+  // ---- Picker handlers ----
+  const onTimeChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setShowTimePicker(false);
+    if (selected) {
+      setAlarmDate((prev) => {
+        const updated = new Date(prev);
+        updated.setHours(selected.getHours(), selected.getMinutes(), 0, 0);
+        return updated;
+      });
     }
   };
 
+  const onDateChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setShowDatePicker(false);
+    if (selected) {
+      setAlarmDate((prev) => {
+        const updated = new Date(prev);
+        updated.setFullYear(selected.getFullYear(), selected.getMonth(), selected.getDate());
+        return updated;
+      });
+    }
+  };
+
+  const onEndDateChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS === 'android') setShowEndDatePicker(false);
+    if (selected) setEndDate(selected);
+  };
+
+  // ---- Save ----
   const handleSave = async () => {
     if (!alarmId || !groupId) return;
     if (!title.trim()) {
@@ -157,11 +203,9 @@ export default function EditAlarm() {
       Alert.alert('Validation Error', 'Alarm title must be 50 characters or less.');
       return;
     }
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
-      Alert.alert('Validation Error', 'Time must be in HH:MM 24-hour format (e.g. 07:30).');
-      return;
-    }
 
+    const now = new Date();
+    const minFuture = new Date(now.getTime() + 2 * 60 * 1000);
     let finalAlarmTimeUtc = '';
 
     if (isRecurring) {
@@ -169,66 +213,24 @@ export default function EditAlarm() {
         Alert.alert('Selection Error', 'Please select at least one repeat day.');
         return;
       }
-      if (!endDate) {
-        Alert.alert('Missing End Date', 'Please enter a recurrence end date.');
-        return;
-      }
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-        Alert.alert('Invalid Date Format', 'End date must be in YYYY-MM-DD format.');
-        return;
-      }
-      
-      const now = new Date();
-      const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
-      const endDateTime = new Date(endYear, endMonth - 1, endDay, 23, 59, 59);
-      
-      if (isNaN(endDateTime.getTime())) {
-        Alert.alert('Invalid Date', 'Please enter a valid end date.');
-        return;
-      }
-
-      if (endDateTime < now) {
+      const maxEndDate = new Date();
+      maxEndDate.setDate(maxEndDate.getDate() + 30);
+      if (endDate < now) {
         Alert.alert('Invalid End Date', 'Recurrence end date must be in the future.');
         return;
       }
-
-      const maxEndDate = new Date();
-      maxEndDate.setDate(maxEndDate.getDate() + 30);
-      if (endDateTime > maxEndDate) {
-        Alert.alert('Limit Exceeded', 'Recurrence end date cannot be more than 30 days in the future.');
+      if (endDate > maxEndDate) {
+        Alert.alert('Limit Exceeded', 'Recurrence end date cannot be more than 30 days away.');
         return;
       }
-
-      const firstOccur = getFirstOccurrence(time, recurrenceDays);
+      const firstOccur = getFirstOccurrenceFromDate(alarmDate, recurrenceDays);
       finalAlarmTimeUtc = firstOccur.toISOString();
     } else {
-      // One-time alarm
-      if (!dateStr) {
-        Alert.alert('Missing Date', 'Please enter a date.');
+      if (alarmDate < minFuture) {
+        Alert.alert('Invalid Time', 'Alarm must be at least 2 minutes in the future.');
         return;
       }
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-        Alert.alert('Invalid Date Format', 'Date must be in YYYY-MM-DD format.');
-        return;
-      }
-      
-      const [year, month, day] = dateStr.split('-').map(Number);
-      const [hours, minutes] = time.split(':').map(Number);
-      const alarmTimeDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
-
-      if (isNaN(alarmTimeDate.getTime())) {
-        Alert.alert('Invalid Date', 'Please enter a valid date.');
-        return;
-      }
-
-      const now = new Date();
-      const minFuture = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes future
-      if (alarmTimeDate < minFuture) {
-        Alert.alert('Invalid Date/Time', 'Alarm time must be at least 2 minutes in the future.');
-        return;
-      }
-
-      finalAlarmTimeUtc = alarmTimeDate.toISOString();
+      finalAlarmTimeUtc = alarmDate.toISOString();
     }
 
     setSaving(true);
@@ -241,12 +243,14 @@ export default function EditAlarm() {
         sound_url: soundUrl,
         is_recurring: isRecurring,
         recurrence_days: isRecurring ? recurrenceDays : [],
-        recurrence_end_date: isRecurring ? endDate : undefined,
+        recurrence_end_date: isRecurring
+          ? `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`
+          : undefined,
       });
 
       if (res.success) {
-        Alert.alert('Success', 'Alarm updated successfully!', [
-          { text: 'OK', onPress: () => router.replace(`/group/${groupId}/alarm/${alarmId}`) }
+        Alert.alert('✅ Alarm Updated', 'Alarm saved successfully!', [
+          { text: 'OK', onPress: () => router.replace(`/group/${groupId}/alarm/${alarmId}`) },
         ]);
       } else {
         Alert.alert('Failed', res.error || 'Failed to update alarm');
@@ -257,6 +261,46 @@ export default function EditAlarm() {
       setSaving(false);
     }
   };
+
+  // ---- iOS modal picker component ----
+  const IOSPickerModal = ({
+    visible,
+    mode,
+    value,
+    minimumDate,
+    maximumDate,
+    onChange,
+    onDone,
+  }: {
+    visible: boolean;
+    mode: 'date' | 'time';
+    value: Date;
+    minimumDate?: Date;
+    maximumDate?: Date;
+    onChange: (e: DateTimePickerEvent, d?: Date) => void;
+    onDone: () => void;
+  }) => (
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHeader}>
+            <Pressable onPress={onDone}>
+              <Text style={styles.modalDoneBtn}>Done</Text>
+            </Pressable>
+          </View>
+          <DateTimePicker
+            value={value}
+            mode={mode}
+            display="spinner"
+            onChange={onChange}
+            minimumDate={minimumDate}
+            maximumDate={maximumDate}
+            style={styles.iosPicker}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
 
   if (loading) {
     return (
@@ -272,6 +316,42 @@ export default function EditAlarm() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />
+
+      {/* Android pickers */}
+      {Platform.OS === 'android' && showTimePicker && (
+        <DateTimePicker value={alarmDate} mode="time" is24Hour={false} display="default" onChange={onTimeChange} />
+      )}
+      {Platform.OS === 'android' && showDatePicker && (
+        <DateTimePicker value={alarmDate} mode="date" display="default" minimumDate={new Date()} onChange={onDateChange} />
+      )}
+      {Platform.OS === 'android' && showEndDatePicker && (
+        <DateTimePicker
+          value={endDate}
+          mode="date"
+          display="default"
+          minimumDate={new Date()}
+          maximumDate={(() => { const m = new Date(); m.setDate(m.getDate() + 30); return m; })()}
+          onChange={onEndDateChange}
+        />
+      )}
+
+      {/* iOS pickers */}
+      {Platform.OS === 'ios' && (
+        <>
+          <IOSPickerModal visible={showTimePicker} mode="time" value={alarmDate} onChange={onTimeChange} onDone={() => setShowTimePicker(false)} />
+          <IOSPickerModal visible={showDatePicker} mode="date" value={alarmDate} minimumDate={new Date()} onChange={onDateChange} onDone={() => setShowDatePicker(false)} />
+          <IOSPickerModal
+            visible={showEndDatePicker}
+            mode="date"
+            value={endDate}
+            minimumDate={new Date()}
+            maximumDate={(() => { const m = new Date(); m.setDate(m.getDate() + 30); return m; })()}
+            onChange={onEndDateChange}
+            onDone={() => setShowEndDatePicker(false)}
+          />
+        </>
+      )}
+
       <ScrollView
         contentContainerStyle={styles.container}
         keyboardShouldPersistTaps="handled"
@@ -279,9 +359,10 @@ export default function EditAlarm() {
       >
         <View style={styles.header}>
           <Text style={styles.title}>Edit Group Alarm</Text>
-          <Text style={styles.subtitle}>Modify scheduled time or wake-up challenge difficulty</Text>
+          <Text style={styles.subtitle}>Modify scheduled time or challenge difficulty</Text>
         </View>
 
+        {/* Form card */}
         <View style={styles.card}>
           <Input
             label="Alarm Title"
@@ -289,23 +370,35 @@ export default function EditAlarm() {
             value={title}
             onChangeText={setTitle}
           />
-          <Input
-            label="Time (24h format, HH:MM)"
-            placeholder="e.g. 07:30"
-            value={time}
-            onChangeText={setTime}
-            maxLength={5}
-            keyboardType="numbers-and-punctuation"
-          />
+
+          {/* Time picker row */}
+          <View style={styles.pickerFieldGroup}>
+            <Text style={styles.pickerFieldLabel}>Alarm Time</Text>
+            <Pressable
+              style={styles.pickerRow}
+              onPress={() => setShowTimePicker(true)}
+              android_ripple={{ color: Colors.accent }}
+            >
+              <Text style={styles.pickerIcon}>🕐</Text>
+              <Text style={styles.pickerValue}>{formatTimeDisplay(alarmDate)}</Text>
+              <Text style={styles.pickerChevron}>›</Text>
+            </Pressable>
+          </View>
+
+          {/* Date picker row (one-time only) */}
           {!isRecurring && (
-            <Input
-              label="Date (YYYY-MM-DD)"
-              placeholder="e.g. 2026-06-18"
-              value={dateStr}
-              onChangeText={setDateStr}
-              maxLength={10}
-              keyboardType="numbers-and-punctuation"
-            />
+            <View style={styles.pickerFieldGroup}>
+              <Text style={styles.pickerFieldLabel}>Date</Text>
+              <Pressable
+                style={styles.pickerRow}
+                onPress={() => setShowDatePicker(true)}
+                android_ripple={{ color: Colors.accent }}
+              >
+                <Text style={styles.pickerIcon}>📅</Text>
+                <Text style={styles.pickerValue}>{formatDateDisplay(alarmDate)}</Text>
+                <Text style={styles.pickerChevron}>›</Text>
+              </Pressable>
+            </View>
           )}
         </View>
 
@@ -322,12 +415,8 @@ export default function EditAlarm() {
                   onPress={() => setDifficulty(diff.key)}
                 >
                   <Text style={styles.diffEmoji}>{diff.emoji}</Text>
-                  <Text style={[styles.diffLabel, selected && styles.diffLabelSelected]}>
-                    {diff.label}
-                  </Text>
-                  <Text style={[styles.diffDesc, selected && styles.diffDescSelected]}>
-                    {diff.description}
-                  </Text>
+                  <Text style={[styles.diffLabel, selected && styles.diffLabelSelected]}>{diff.label}</Text>
+                  <Text style={[styles.diffDesc, selected && styles.diffDescSelected]}>{diff.description}</Text>
                 </Pressable>
               );
             })}
@@ -342,8 +431,8 @@ export default function EditAlarm() {
               <Text style={styles.soundIcon}>🎵</Text>
             </View>
             <View style={styles.soundInfo}>
-              <Text style={styles.soundName}>{soundUrl}</Text>
-              <Text style={styles.soundDesc}>Tap to change preset</Text>
+              <Text style={styles.soundName} numberOfLines={1}>{soundLabel}</Text>
+              <Text style={styles.soundDesc}>Tap to change</Text>
             </View>
             <Button
               title="Change"
@@ -354,7 +443,7 @@ export default function EditAlarm() {
           </View>
         </View>
 
-        {/* Recurrence Fields */}
+        {/* Recurrence */}
         <View style={styles.section}>
           <View style={styles.recurrenceHeader}>
             <View>
@@ -389,14 +478,17 @@ export default function EditAlarm() {
                 })}
               </View>
 
-              <Input
-                label="End Date (Optional, max 30 days, YYYY-MM-DD)"
-                placeholder="e.g. 2026-07-15"
-                value={endDate}
-                onChangeText={setEndDate}
-                maxLength={10}
-                keyboardType="numbers-and-punctuation"
-              />
+              {/* End date picker row */}
+              <Text style={styles.fieldLabel}>End Date (max 30 days)</Text>
+              <Pressable
+                style={styles.pickerRow}
+                onPress={() => setShowEndDatePicker(true)}
+                android_ripple={{ color: Colors.accent }}
+              >
+                <Text style={styles.pickerIcon}>📅</Text>
+                <Text style={styles.pickerValue}>{formatDateDisplay(endDate)}</Text>
+                <Text style={styles.pickerChevron}>›</Text>
+              </Pressable>
             </View>
           )}
         </View>
@@ -409,41 +501,13 @@ export default function EditAlarm() {
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  container: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: 48,
-    paddingBottom: 48,
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  infoText: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: Typography.sizes.body,
-    color: Colors.textSecondary,
-  },
-  header: {
-    marginBottom: Spacing.lg,
-  },
-  title: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: Typography.sizes.display,
-    fontWeight: '700',
-    color: Colors.dark,
-  },
-  subtitle: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: Typography.sizes.body,
-    color: Colors.textSecondary,
-    marginTop: 4,
-  },
+  screen: { flex: 1, backgroundColor: Colors.background },
+  container: { paddingHorizontal: Spacing.lg, paddingTop: 48, paddingBottom: 48 },
+  loadingContainer: { flex: 1, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center' },
+  infoText: { fontFamily: Typography.fonts.regular, fontSize: Typography.sizes.body, color: Colors.textSecondary },
+  header: { marginBottom: Spacing.lg },
+  title: { fontFamily: Typography.fonts.regular, fontSize: Typography.sizes.display, fontWeight: '700', color: Colors.dark },
+  subtitle: { fontFamily: Typography.fonts.regular, fontSize: Typography.sizes.body, color: Colors.textSecondary, marginTop: 4 },
   card: {
     backgroundColor: Colors.surface,
     borderRadius: 18,
@@ -457,154 +521,61 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  section: {
-    backgroundColor: Colors.surface,
-    borderRadius: 18,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.divider,
-  },
-  sectionTitle: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: Typography.sizes.body,
-    fontWeight: '700',
-    color: Colors.dark,
-    marginBottom: 4,
-  },
-  diffRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: Spacing.sm,
-  },
-  diffCard: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: Spacing.md,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Colors.divider,
-    backgroundColor: Colors.background,
-  },
-  diffCardSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.accent,
-  },
-  diffEmoji: {
-    fontSize: 22,
-    marginBottom: 4,
-  },
-  diffLabel: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-  },
-  diffLabelSelected: {
-    color: Colors.dark,
-  },
-  diffDesc: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: 10,
-    color: Colors.textDisabled,
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  diffDescSelected: {
-    color: Colors.textSecondary,
-  },
-  soundRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: Spacing.sm,
-    gap: 12,
-  },
-  soundIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  soundIcon: {
-    fontSize: 22,
-  },
-  soundInfo: {
-    flex: 1,
-  },
-  soundName: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.dark,
-  },
-  soundDesc: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: 11,
-    color: Colors.textSecondary,
-  },
-  soundBtn: {
-    width: 80,
-    height: 36,
-    marginVertical: 0,
-  },
-  recurrenceHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  recurrenceDesc: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  recurrenceDetails: {
-    marginTop: Spacing.md,
-    paddingTop: Spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: Colors.divider,
-  },
-  fieldLabel: {
+  pickerFieldGroup: { marginTop: Spacing.sm },
+  pickerFieldLabel: {
     fontFamily: Typography.fonts.regular,
     fontSize: Typography.sizes.caption,
     fontWeight: '600',
     color: Colors.textSecondary,
-    marginBottom: Spacing.sm,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  daysRow: {
+  pickerRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: Spacing.md,
-  },
-  dayBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    borderRadius: 12,
     borderWidth: 1.5,
     borderColor: Colors.divider,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.background,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 14,
+    gap: 10,
   },
-  dayBtnSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary,
-  },
-  dayText: {
-    fontFamily: Typography.fonts.regular,
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.textSecondary,
-  },
-  dayTextSelected: {
-    color: Colors.surface,
-  },
-  saveBtn: {
-    marginTop: Spacing.md,
-  },
-  cancelBtn: {
-    alignSelf: 'center',
-    marginTop: Spacing.sm,
-  },
+  pickerIcon: { fontSize: 20 },
+  pickerValue: { flex: 1, fontFamily: Typography.fonts.semibold, fontSize: Typography.sizes.bodyLarge, color: Colors.dark },
+  pickerChevron: { fontSize: 22, color: Colors.textSecondary },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  modalSheet: { backgroundColor: Colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 30 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing.sm, borderBottomWidth: 1, borderBottomColor: Colors.divider },
+  modalDoneBtn: { fontFamily: Typography.fonts.bold, fontSize: Typography.sizes.body, color: Colors.primary },
+  iosPicker: { backgroundColor: Colors.surface },
+  section: { backgroundColor: Colors.surface, borderRadius: 18, padding: Spacing.md, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.divider },
+  sectionTitle: { fontFamily: Typography.fonts.regular, fontSize: Typography.sizes.body, fontWeight: '700', color: Colors.dark, marginBottom: 4 },
+  diffRow: { flexDirection: 'row', gap: 8, marginTop: Spacing.sm },
+  diffCard: { flex: 1, alignItems: 'center', paddingVertical: Spacing.md, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.divider, backgroundColor: Colors.background },
+  diffCardSelected: { borderColor: Colors.primary, backgroundColor: Colors.accent },
+  diffEmoji: { fontSize: 22, marginBottom: 4 },
+  diffLabel: { fontFamily: Typography.fonts.regular, fontSize: 13, fontWeight: '700', color: Colors.textSecondary },
+  diffLabelSelected: { color: Colors.dark },
+  diffDesc: { fontFamily: Typography.fonts.regular, fontSize: 10, color: Colors.textDisabled, marginTop: 2, textAlign: 'center' },
+  diffDescSelected: { color: Colors.textSecondary },
+  soundRow: { flexDirection: 'row', alignItems: 'center', marginTop: Spacing.sm, gap: 12 },
+  soundIconBox: { width: 48, height: 48, borderRadius: 24, backgroundColor: Colors.accent, alignItems: 'center', justifyContent: 'center' },
+  soundIcon: { fontSize: 22 },
+  soundInfo: { flex: 1 },
+  soundName: { fontFamily: Typography.fonts.regular, fontSize: 13, fontWeight: '600', color: Colors.dark },
+  soundDesc: { fontFamily: Typography.fonts.regular, fontSize: 11, color: Colors.textSecondary },
+  soundBtn: { width: 80, height: 36, marginVertical: 0 },
+  recurrenceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  recurrenceDesc: { fontFamily: Typography.fonts.regular, fontSize: 12, color: Colors.textSecondary },
+  recurrenceDetails: { marginTop: Spacing.md, paddingTop: Spacing.md, borderTopWidth: 1, borderTopColor: Colors.divider },
+  fieldLabel: { fontFamily: Typography.fonts.regular, fontSize: Typography.sizes.caption, fontWeight: '600', color: Colors.textSecondary, marginBottom: Spacing.sm },
+  daysRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: Spacing.md },
+  dayBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: Colors.divider, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.background },
+  dayBtnSelected: { borderColor: Colors.primary, backgroundColor: Colors.primary },
+  dayText: { fontFamily: Typography.fonts.regular, fontSize: 11, fontWeight: '700', color: Colors.textSecondary },
+  dayTextSelected: { color: Colors.surface },
+  saveBtn: { marginTop: Spacing.md },
+  cancelBtn: { alignSelf: 'center', marginTop: Spacing.sm },
 });
