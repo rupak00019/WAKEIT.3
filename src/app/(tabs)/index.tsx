@@ -55,7 +55,12 @@ export default function HomeDashboard() {
                 group_id: alarm.group_id,
                 group_name: grp.name,
                 alarm_time_utc: new Date(alarm.alarm_time).toISOString(),
-                alarm_time_local: alarm.alarm_time,
+                // Convert UTC from Supabase to device local time for display (PRD §5.3)
+                alarm_time_local: new Date(alarm.alarm_time).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: true,
+                }),
                 difficulty: alarm.difficulty,
                 sound_path: alarm.sound_url || undefined,
                 is_recurring: alarm.is_recurring ? 1 : 0,
