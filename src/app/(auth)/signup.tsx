@@ -94,7 +94,7 @@ export default function SignUp() {
       >
         {/* Background Skyline */}
         <Image 
-          source={require('../../assets/images/illustrations/skyline.png')}
+          source={require('../../../assets/images/illustrations/skyline.png')}
           style={styles.skyline}
           resizeMode="cover"
         />

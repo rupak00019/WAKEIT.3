@@ -39,7 +39,7 @@ export default function OnboardingSlide3() {
       {/* Illustration area */}
       <View style={styles.illustrationArea}>
         <Image 
-          source={require('../../assets/images/illustrations/math.png')}
+          source={require('../../../assets/images/illustrations/math.png')}
           style={styles.illustration}
           resizeMode="contain"
         />

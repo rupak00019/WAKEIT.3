@@ -41,7 +41,7 @@ export default function OnboardingSlide2() {
       {/* Illustration area */}
       <View style={styles.illustrationArea}>
         <Image 
-          source={require('../../assets/images/illustrations/alarm.png')}
+          source={require('../../../assets/images/illustrations/alarm.png')}
           style={styles.illustration}
           resizeMode="contain"
         />

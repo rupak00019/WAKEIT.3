@@ -74,7 +74,7 @@ export default function Login() {
       >
         {/* Background Skyline */}
         <Image 
-          source={require('../../assets/images/illustrations/skyline.png')}
+          source={require('../../../assets/images/illustrations/skyline.png')}
           style={styles.skyline}
           resizeMode="cover"
         />
@@ -87,7 +87,7 @@ export default function Login() {
           ]}
         >
           <Image 
-            source={require('../../assets/images/illustrations/alarm.png')}
+            source={require('../../../assets/images/illustrations/alarm.png')}
             style={styles.topIllustration}
             resizeMode="contain"
           />
