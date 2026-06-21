@@ -49,13 +49,8 @@
         <action android:name="com.rupak.wakeit.ALARM_RING"/>
       </intent-filter>
     </receiver>
-    <service
-      android:name=".AlarmForegroundService"
-      android:exported="false"
-      android:foregroundServiceType="specialUse">
-      <property
-        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-        android:value="alarm"/>
+    <service android:name=".AlarmForegroundService" android:exported="false" android:foregroundServiceType="specialUse">
+      <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="alarm"/>
     </service>
   </application>
 </manifest>
