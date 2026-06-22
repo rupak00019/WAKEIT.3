@@ -3,35 +3,35 @@ import { Platform } from 'react-native';
 export const Colors = {
   modes: {
     light: {
-      text: '#0A1C40',
-      background: '#FAFBFC',
-      backgroundElement: '#FFFFFF',
-      backgroundSelected: '#D9E8FE',
-      textSecondary: '#6B7280',
+      text: '#0D1B4B',
+      background: '#F0F4FF',
+      backgroundElement: '#EEF2FF',
+      backgroundSelected: '#EEF2FF',
+      textSecondary: '#0D1B4B',
     },
     dark: {
-      text: '#FAFBFC',
-      background: '#0A1C40',
-      backgroundElement: '#0A1C40',
-      backgroundSelected: '#2A7AF2',
-      textSecondary: '#9CA3AF',
+      text: '#0D1B4B',
+      background: '#F0F4FF',
+      backgroundElement: '#EEF2FF',
+      backgroundSelected: '#EEF2FF',
+      textSecondary: '#0D1B4B',
     },
   },
-  background: '#FAFBFC',
-  surface: '#FFFFFF',
-  primary: '#2A7AF2',
-  dark: '#0A1C40',
-  accent: '#D9E8FE',
-  error: '#EF4444',
-  warning: '#F59E0B',
-  textPrimary: '#0A1C40',
-  textSecondary: '#6B7280',
-  textDisabled: '#9CA3AF',
-  divider: '#E5E7EB',
+  background: '#F0F4FF',
+  surface: '#EEF2FF',
+  primary: '#3B6FF0',
+  dark: '#0D1B4B',
+  accent: '#EEF2FF',
+  error: '#E53935',
+  warning: '#E53935',
+  textPrimary: '#0D1B4B',
+  textSecondary: '#0D1B4B',
+  textDisabled: '#0D1B4B',
+  divider: '#EEF2FF',
   status: {
-    completed: { bg: '#DCFCE7', text: '#16A34A' },
-    pending: { bg: '#FEF3C7', text: '#D97706' },
-    missed: { bg: '#FEE2E2', text: '#DC2626' },
+    completed: { bg: '#EEF2FF', text: '#22C55E' },
+    pending: { bg: '#EEF2FF', text: '#3B6FF0' },
+    missed: { bg: '#EEF2FF', text: '#E53935' },
   },
 } as const;
 
@@ -75,6 +75,22 @@ export const Spacing = {
   lg: 24,
   xl: 32,
   xxl: 48,
+} as const;
+
+export const BorderRadius = {
+  button: 14,
+  input: 12,
+  card: 16,
+} as const;
+
+export const Shadows = {
+  none: {
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
 } as const;
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;

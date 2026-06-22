@@ -3,6 +3,7 @@ import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
 import android.os.Bundle
+import android.view.WindowManager
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -21,6 +22,45 @@ class MainActivity : ReactActivity() {
     SplashScreenManager.registerOnActivity(this)
     // @generated end expo-splashscreen
     super.onCreate(null)
+
+    // FIX 3: If this Activity was launched by AlarmReceiver (from_alarm=true),
+    // apply flags so the alarm screen shows even on a locked / sleeping device.
+    // PRD Section 5.4 (Full Screen Alarm trigger sequence)
+    if (intent?.getBooleanExtra("from_alarm", false) == true) {
+      applyAlarmWindowFlags()
+    }
+  }
+
+  /**
+   * FIX 3: Called when the app is already running and AlarmReceiver fires a new Intent.
+   * Re-applies window flags so the alarm screen appears over the lock screen.
+   */
+  override fun onNewIntent(intent: android.content.Intent?) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    if (intent?.getBooleanExtra("from_alarm", false) == true) {
+      applyAlarmWindowFlags()
+    }
+  }
+
+  /**
+   * Sets window flags required to show the alarm over the lock screen and wake the display.
+   * Uses modern API (27+) with setShowWhenLocked / setTurnScreenOn, with legacy fallback.
+   */
+  private fun applyAlarmWindowFlags() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+      setShowWhenLocked(true)
+      setTurnScreenOn(true)
+    } else {
+      @Suppress("DEPRECATION")
+      window.addFlags(
+        WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+        WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+      )
+    }
+    // Keep screen on while alarm is ringing regardless of API level
+    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
   }
 
   /**

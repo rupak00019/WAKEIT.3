@@ -151,18 +151,43 @@ export async function handleMemberRemoved(data: any) {
 
 // --- DISPLAY NOTIFICATION UTILS ---
 
-export async function displayNotification(title: string, body: string, data?: any) {
-  const channelId = await notifee.createChannel({
-    id: 'default',
-    name: 'Default Channel',
+/**
+ * FIX 6: Create the two Notifee notification channels per PRD Section 7.9.
+ * Channel 1 — 'wakeit_alarm': IMPORTANCE_HIGH, alarm sound, vibration, full-screen.
+ * Channel 2 — 'wakeit_social': IMPORTANCE_DEFAULT for member activity notifications.
+ * Called once during app startup and also inline before any displayNotification call.
+ */
+export async function ensureNotificationChannels() {
+  // Channel 1: Full-screen alarm channel
+  await notifee.createChannel({
+    id: 'wakeit_alarm',
+    name: 'WAKEIT Alarm',
     importance: AndroidImportance.HIGH,
+    sound: 'default',
+    vibration: true,
+    vibrationPattern: [300, 500, 300, 500],
   });
+
+  // Channel 2: Social/member activity channel
+  await notifee.createChannel({
+    id: 'wakeit_social',
+    name: 'WAKEIT Notifications',
+    importance: AndroidImportance.DEFAULT,
+    sound: 'default',
+    vibration: false,
+  });
+}
+
+export async function displayNotification(title: string, body: string, data?: any) {
+  // Ensure channels are created before displaying any notification
+  await ensureNotificationChannels();
 
   await notifee.displayNotification({
     title,
     body,
     android: {
-      channelId,
+      // Social/member activity notifications go to wakeit_social channel
+      channelId: 'wakeit_social',
       pressAction: {
         id: 'default',
       },
@@ -171,7 +196,15 @@ export async function displayNotification(title: string, body: string, data?: an
   });
 }
 
+
 // --- INITIALIZATION AND LISTENERS ---
+
+// FIX 6: Create the two Notifee notification channels immediately at module load.
+// This runs whether the app is in foreground, background, or headless mode.
+// PRD Section 7.9 (Notification Channels)
+ensureNotificationChannels().catch((err) => {
+  console.warn('[FCM] Failed to initialize notification channels:', err);
+});
 
 // Register Background Message Handler
 messaging().setBackgroundMessageHandler(async remoteMessage => {

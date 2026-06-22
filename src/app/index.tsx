@@ -11,9 +11,11 @@ import {
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import notifee, { EventType } from '@notifee/react-native';
 import { useAuthStore } from '@/store/authStore';
 import { syncOfflineCompletions } from '@/lib/sqlite';
 import { supabase } from '@/lib/supabase';
+import { getInitialAlarmId } from '@/lib/alarmManager';
 import { Colors, Typography, Spacing } from '@/constants/theme';
 
 const { width } = Dimensions.get('window');
@@ -65,7 +67,26 @@ export default function Splash() {
       }
     });
 
-    const checkNavigation = async () => {
+    // FIX 4a: Check if this app launch was triggered by AlarmReceiver.
+    // AlarmReceiver stores the alarm_id in SharedPreferences before firing the
+    // full-screen intent. We read and clear it here, then navigate to /alarm/ring.
+    // PRD Section 5.4 (Full Screen Alarm trigger sequence)
+    const checkAlarmLaunch = async () => {
+      try {
+        const pendingAlarmId = await getInitialAlarmId();
+        if (pendingAlarmId) {
+          console.log('[Splash] Alarm launch detected, alarm_id =', pendingAlarmId);
+          router.replace({
+            pathname: '/alarm/ring',
+            params: { alarmId: pendingAlarmId },
+          });
+          return; // Skip normal onboarding/auth navigation
+        }
+      } catch (err) {
+        console.warn('[Splash] Failed to check initial alarm id:', err);
+      }
+
+      // Normal navigation flow (no alarm launch)
       try {
         const onboardingCompleted = await AsyncStorage.getItem('@onboarding_completed');
         await new Promise((resolve) => setTimeout(resolve, 2800));
@@ -81,11 +102,32 @@ export default function Splash() {
       }
     };
 
+    // FIX 4b: Handle alarms that fire while app is already in the foreground.
+    // notifee.onForegroundEvent catches the PRESS action on the full-screen notification
+    // and navigates directly to the alarm ring screen.
+    // PRD Section 5.4 (Full Screen Alarm trigger sequence)
+    const unsubscribeNotifee = notifee.onForegroundEvent(({ type, detail }) => {
+      if (
+        (type === EventType.PRESS || type === EventType.DELIVERED) &&
+        detail?.notification?.android?.channelId === 'wakeit_alarm'
+      ) {
+        const alarmId = detail?.notification?.data?.alarm_id as string | undefined;
+        console.log('[Splash] Foreground alarm notification received, alarm_id =', alarmId);
+        router.push({
+          pathname: '/alarm/ring',
+          params: { alarmId: alarmId ?? '' },
+        });
+      }
+    });
+
     if (!loading) {
-      checkNavigation();
+      checkAlarmLaunch();
     }
 
-    return () => { unsubscribeNet(); };
+    return () => {
+      unsubscribeNet();
+      unsubscribeNotifee();
+    };
   }, [session, loading]);
 
   return (

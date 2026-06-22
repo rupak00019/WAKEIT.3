@@ -1,7 +1,12 @@
+// FIX 2: Import FCM module FIRST — registers setBackgroundMessageHandler
+// immediately when the bundle loads, including headless/background launch.
+// PRD Section 9.5 (FCM Headless Task)
+import '@/lib/fcm';
+
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import * as Updates from 'expo-updates';
 import {
   useFonts,
@@ -15,9 +20,44 @@ import {
 import { useAuthStore } from '@/store/authStore';
 import { supabase } from '@/lib/supabase';
 import { initializeRevenueCat } from '@/lib/revenuecat';
+import messaging from '@react-native-firebase/messaging';
 
 // Keep the native splash screen visible until fonts + auth are ready
 SplashScreen.preventAutoHideAsync();
+
+/**
+ * FIX 1: Register the device FCM token to Supabase device_tokens table.
+ * Runs on every authenticated app open (PRD Section 9.5 — "Refreshed on every app open").
+ */
+async function registerFCMToken(userId: string) {
+  try {
+    const token = await messaging().getToken();
+    if (!token) {
+      console.warn('[FCM] No token received from messaging().getToken()');
+      return;
+    }
+    const platform = Platform.OS === 'android' ? 'android' : 'ios';
+    const { error } = await supabase
+      .from('device_tokens')
+      .upsert(
+        {
+          user_id: userId,
+          platform,
+          fcm_token: token,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'user_id,platform' }
+      );
+    if (error) {
+      console.error('[FCM] Failed to upsert device token:', error.message);
+    } else {
+      console.log('[FCM] Device token registered successfully for user', userId);
+    }
+  } catch (err) {
+    console.error('[FCM] Error during token registration:', err);
+  }
+}
 
 export default function RootLayout() {
   const { setUser, setSession, setProfile, setLoading } = useAuthStore();
@@ -40,6 +80,8 @@ export default function RootLayout() {
       setUser(session?.user ?? null);
       if (session?.user) {
         initializeRevenueCat(session.user.id);
+        // FIX 1: Register/refresh FCM token every app open while authenticated
+        registerFCMToken(session.user.id);
         const { data: profile, error } = await supabase
           .from('users')
           .select('*')
@@ -54,6 +96,32 @@ export default function RootLayout() {
       setLoading(false);
     });
 
+    // FIX 1: Listen for FCM token refreshes and re-upsert whenever it changes
+    // PRD Section 9.5 — token must be kept current in device_tokens table
+    const unsubscribeTokenRefresh = messaging().onTokenRefresh(async (newToken) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        const platform = Platform.OS === 'android' ? 'android' : 'ios';
+        const { error } = await supabase
+          .from('device_tokens')
+          .upsert(
+            {
+              user_id: session.user.id,
+              platform,
+              fcm_token: newToken,
+              is_active: true,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'user_id,platform' }
+          );
+        if (error) {
+          console.error('[FCM] Failed to refresh device token:', error.message);
+        } else {
+          console.log('[FCM] Device token refreshed successfully');
+        }
+      }
+    });
+
     // 2. Auth State Listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
@@ -61,6 +129,8 @@ export default function RootLayout() {
         setUser(session?.user ?? null);
         if (session?.user) {
           initializeRevenueCat(session.user.id);
+          // FIX 1: Also register token on sign-in event
+          registerFCMToken(session.user.id);
           const { data: profile, error } = await supabase
             .from('users')
             .select('*')
@@ -78,6 +148,7 @@ export default function RootLayout() {
 
     return () => {
       subscription.unsubscribe();
+      unsubscribeTokenRefresh();
     };
   }, []);
 
