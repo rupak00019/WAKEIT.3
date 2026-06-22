@@ -11,10 +11,14 @@ interface AlarmsListProps {
 }
 
 export default function AlarmsList({ alarms, groupId }: AlarmsListProps) {
+  // Bug 1 fix: alarm_time is a full ISO UTC string (e.g. "2026-06-22T07:30:00Z").
+  // Must parse with new Date(), not split(':'), to get the correct local time.
   const formatTime = (timeStr: string) => {
+    if (!timeStr) return '';
     try {
-      const [hours, minutes] = timeStr.split(':');
-      const hour = parseInt(hours, 10);
+      const date = new Date(timeStr);
+      const hour = date.getHours();
+      const minutes = String(date.getMinutes()).padStart(2, '0');
       const ampm = hour >= 12 ? 'PM' : 'AM';
       const formattedHour = hour % 12 || 12;
       return `${formattedHour}:${minutes} ${ampm}`;
@@ -32,14 +36,20 @@ export default function AlarmsList({ alarms, groupId }: AlarmsListProps) {
     }
   };
 
+  // Bug 2 fix: Only show active/scheduled alarms. Cancelled and completed
+  // alarms must not appear in the Group Dashboard list per PRD §5.3.
+  const visibleAlarms = alarms.filter(
+    (a) => a.status === 'scheduled' || a.status === 'active'
+  );
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Group Alarms</Text>
-      {alarms.length === 0 ? (
+      {visibleAlarms.length === 0 ? (
         <Text style={styles.emptyText}>No alarms scheduled. Ask the Admin to add one!</Text>
       ) : (
         <FlatList
-          data={alarms}
+          data={visibleAlarms}
           keyExtractor={(item) => item.id}
           scrollEnabled={false} // Since it will be rendered inside screen ScrollView
           renderItem={({ item }) => (
